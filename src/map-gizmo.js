@@ -40,7 +40,7 @@ export function mountMapGizmos(context, actions) {
 
     for (const mount of el.querySelectorAll('[data-role="white-map-mount"]')) {
       const id = mount.dataset.whiteMapId;
-      if (!selectedSet.has(id) || mount.dataset.mapExploring === 'true' || context.world.isEntityReadOnly?.(id)) {
+      if (!selectedSet.has(id) || mount.dataset.mapExploring === 'true' || mount.dataset.mapTool || context.world.isEntityReadOnly?.(id)) {
         continue;
       }
       for (const boxGroup of mount.querySelectorAll('[data-map-drag="legend"], [data-map-drag="inset"]')) {
@@ -168,7 +168,7 @@ export function mountMapGizmos(context, actions) {
       kind = meta.kind;
     } else if (surface.contains(e.target)) {
       const mount = e.target.closest?.('[data-role="white-map-mount"]');
-      if (!mount || mount.dataset.mapExploring === 'true') return;
+      if (!mount || mount.dataset.mapExploring === 'true' || mount.dataset.mapTool) return;
       targetEl = e.target.closest?.(DRAG_SELECTOR);
       if (!targetEl) return;
       id = mount.dataset.whiteMapId;

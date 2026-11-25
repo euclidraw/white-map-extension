@@ -17,13 +17,40 @@ export const DEFAULT_BASE_LAYERS = Object.freeze({
   graticule: 'equator-left',
 });
 
+/**
+ * Flat top-level fields bind directly to Alid's native Inspector (Props panel),
+ * while structured mirrors (viewport, baseLayers, inset, legend) remain synced for
+ * backward compatibility and Copilot tools.
+ */
 export const MAP_DEFAULTS = Object.freeze({
   title: '',
   regionPreset: 'east-asia-oceania',
   projection: 'mercator',
-  viewport: { centerLon: 121, centerLat: 11, scale: 265, rotateLon: 0 },
+  centerLon: 121,
+  centerLat: 11,
+  scale: 265,
+  rotateLon: 0,
+  showCoastline: true,
+  showBorders: true,
+  showAdmin1: false,
+  showRivers: false,
+  showLakes: true,
+  graticule: 'equator-left',
+  showInset: false,
+  insetRegion: 'world',
+  insetCorner: 'bl',
+  showLegend: false,
+  legendCorner: 'bl',
   stylePreset: 'admin0-highlight',
+  oceanColor: '',
+  landColor: '',
+  inkColor: '',
+  highlightColor: '',
+  coastWidth: 0,
+  borderDash: '',
+  fontStyle: 'serif',
   customCss: '',
+  viewport: { centerLon: 121, centerLat: 11, scale: 265, rotateLon: 0 },
   baseLayers: { ...DEFAULT_BASE_LAYERS },
   highlights: [],
   customLayers: [],
@@ -44,17 +71,52 @@ export function normalizeOffset(offset) {
   };
 }
 
+/**
+ * Synchronizes flat Inspector fields from structured viewport/baseLayers/inset/legend objects.
+ */
+export function syncFlatFields(props) {
+  const vp = props.viewport ?? {};
+  const bl = props.baseLayers ?? {};
+  const ins = props.inset ?? {};
+  const leg = props.legend ?? {};
+  return {
+    ...props,
+    ...(Number.isFinite(vp.centerLon) ? { centerLon: vp.centerLon } : {}),
+    ...(Number.isFinite(vp.centerLat) ? { centerLat: vp.centerLat } : {}),
+    ...(Number.isFinite(vp.scale) ? { scale: vp.scale } : {}),
+    ...(Number.isFinite(vp.rotateLon) ? { rotateLon: vp.rotateLon } : {}),
+    ...(typeof bl.coastline === 'boolean' ? { showCoastline: bl.coastline } : {}),
+    ...(typeof bl.borders === 'boolean' ? { showBorders: bl.borders } : {}),
+    ...(typeof bl.admin1 === 'boolean' ? { showAdmin1: bl.admin1 } : {}),
+    ...(typeof bl.rivers === 'boolean' ? { showRivers: bl.rivers } : {}),
+    ...(typeof bl.lakes === 'boolean' ? { showLakes: bl.lakes } : {}),
+    ...(typeof bl.graticule === 'string' ? { graticule: bl.graticule } : {}),
+    ...(typeof ins.enabled === 'boolean' ? { showInset: ins.enabled } : {}),
+    ...(typeof ins.region === 'string' ? { insetRegion: ins.region } : {}),
+    ...(typeof ins.corner === 'string' ? { insetCorner: ins.corner } : {}),
+    ...(typeof leg.enabled === 'boolean' ? { showLegend: leg.enabled } : {}),
+    ...(typeof leg.corner === 'string' ? { legendCorner: leg.corner } : {}),
+  };
+}
+
 export function createMapPropsFromThematicPreset(thematicId) {
   const t = getThematicPreset(thematicId);
   if (!t) return createMapPropsForRegion('east-asia-oceania', 'admin0-highlight');
   const region = getRegionPreset(t.regionPreset);
-  return {
+  return syncFlatFields({
     ...MAP_DEFAULTS,
     title: '',
     regionPreset: region.id,
     projection: region.projection,
     viewport: { ...region.viewport },
     stylePreset: t.stylePreset,
+    oceanColor: '',
+    landColor: '',
+    inkColor: '',
+    highlightColor: '',
+    coastWidth: 0,
+    borderDash: '',
+    fontStyle: 'serif',
     customCss: '',
     baseLayers: { ...DEFAULT_BASE_LAYERS, ...t.baseLayers },
     highlights: structuredClone(t.highlights ?? []),
@@ -63,19 +125,26 @@ export function createMapPropsFromThematicPreset(thematicId) {
     inset: { enabled: false, region: region.insetRegion || 'world', corner: 'bl', offset: { x: 0, y: 0 }, ...(t.inset ?? {}) },
     legend: { enabled: false, corner: 'bl', offset: { x: 0, y: 0 }, items: [], ...(t.legend ?? {}) },
     bakedDetail: null,
-  };
+  });
 }
 
 export function createMapPropsForRegion(regionId = 'east-asia-oceania', stylePresetId = 'admin0-highlight') {
   const region = getRegionPreset(regionId);
   const preset = MAP_PRINT_PRESETS.find(p => p.id === stylePresetId) ?? MAP_PRINT_PRESETS[4];
-  return {
+  return syncFlatFields({
     ...MAP_DEFAULTS,
     title: '',
     regionPreset: region.id,
     projection: region.projection,
     viewport: { ...region.viewport },
     stylePreset: preset.id,
+    oceanColor: '',
+    landColor: '',
+    inkColor: '',
+    highlightColor: '',
+    coastWidth: 0,
+    borderDash: '',
+    fontStyle: 'serif',
     customCss: '',
     baseLayers: { ...DEFAULT_BASE_LAYERS, ...(preset.defaultLayers ?? {}) },
     highlights: [],
@@ -84,27 +153,48 @@ export function createMapPropsForRegion(regionId = 'east-asia-oceania', stylePre
     inset: { enabled: preset.id === 'detail-corridor', region: region.insetRegion || 'world', corner: 'bl', offset: { x: 0, y: 0 } },
     legend: { enabled: false, corner: 'bl', offset: { x: 0, y: 0 }, items: [] },
     bakedDetail: null,
-  };
+  });
 }
 
 export function resolveMapSpec(rawProps = {}) {
   const region = getRegionPreset(rawProps.regionPreset);
-  const style = resolveMapStyle(rawProps.stylePreset || 'admin0-highlight', rawProps.customCss || '');
+  const style = resolveMapStyle(rawProps.stylePreset || 'admin0-highlight', rawProps.customCss || '', {
+    oceanColor: rawProps.oceanColor,
+    landColor: rawProps.landColor,
+    inkColor: rawProps.inkColor,
+    highlightColor: rawProps.highlightColor,
+    coastWidth: rawProps.coastWidth,
+    borderDash: rawProps.borderDash,
+    fontStyle: rawProps.fontStyle,
+  });
+
   const vp = isRecord(rawProps.viewport) ? rawProps.viewport : region.viewport;
   const projection = ['mercator', 'naturalEarth1', 'conicEqualArea', 'equirectangular'].includes(rawProps.projection)
     ? rawProps.projection
     : region.projection;
 
+  const rawLon = Number.isFinite(rawProps.centerLon) ? rawProps.centerLon : vp.centerLon;
+  const rawLat = Number.isFinite(rawProps.centerLat) ? rawProps.centerLat : vp.centerLat;
+  const rawScale = Number.isFinite(rawProps.scale) ? rawProps.scale : vp.scale;
+  const rawRotate = Number.isFinite(rawProps.rotateLon) ? rawProps.rotateLon : vp.rotateLon;
+
   const viewport = {
-    centerLon: Number.isFinite(vp.centerLon) ? vp.centerLon : region.viewport.centerLon,
-    centerLat: Math.max(-82, Math.min(82, Number.isFinite(vp.centerLat) ? vp.centerLat : region.viewport.centerLat)),
-    scale: Math.max(30, Math.min(40000, Number.isFinite(vp.scale) ? vp.scale : region.viewport.scale)),
-    rotateLon: Number.isFinite(vp.rotateLon) ? vp.rotateLon : (region.viewport.rotateLon ?? 0),
+    centerLon: Number.isFinite(rawLon) ? rawLon : region.viewport.centerLon,
+    centerLat: Math.max(-82, Math.min(82, Number.isFinite(rawLat) ? rawLat : region.viewport.centerLat)),
+    scale: Math.max(30, Math.min(40000, Number.isFinite(rawScale) ? rawScale : region.viewport.scale)),
+    rotateLon: Number.isFinite(rawRotate) ? rawRotate : (region.viewport.rotateLon ?? 0),
   };
 
+  const blRaw = isRecord(rawProps.baseLayers) ? rawProps.baseLayers : {};
   const baseLayers = {
-    ...DEFAULT_BASE_LAYERS,
-    ...(isRecord(rawProps.baseLayers) ? rawProps.baseLayers : {}),
+    coastline: typeof rawProps.showCoastline === 'boolean' ? rawProps.showCoastline : (blRaw.coastline ?? DEFAULT_BASE_LAYERS.coastline),
+    borders: typeof rawProps.showBorders === 'boolean' ? rawProps.showBorders : (blRaw.borders ?? DEFAULT_BASE_LAYERS.borders),
+    admin1: typeof rawProps.showAdmin1 === 'boolean' ? rawProps.showAdmin1 : (blRaw.admin1 ?? DEFAULT_BASE_LAYERS.admin1),
+    rivers: typeof rawProps.showRivers === 'boolean' ? rawProps.showRivers : (blRaw.rivers ?? DEFAULT_BASE_LAYERS.rivers),
+    lakes: typeof rawProps.showLakes === 'boolean' ? rawProps.showLakes : (blRaw.lakes ?? DEFAULT_BASE_LAYERS.lakes),
+    graticule: typeof rawProps.graticule === 'string' && rawProps.graticule
+      ? rawProps.graticule
+      : (blRaw.graticule ?? DEFAULT_BASE_LAYERS.graticule),
   };
 
   const highlights = Array.isArray(rawProps.highlights)
@@ -139,10 +229,12 @@ export function resolveMapSpec(rawProps = {}) {
     : [];
 
   const insetRaw = isRecord(rawProps.inset) ? rawProps.inset : {};
+  const insetRegionVal = rawProps.insetRegion ?? insetRaw.region;
+  const insetCornerVal = rawProps.insetCorner ?? insetRaw.corner;
   const inset = {
-    enabled: Boolean(insetRaw.enabled),
-    region: ['world', 'europe', 'east-asia'].includes(insetRaw.region) ? insetRaw.region : (region.insetRegion || 'world'),
-    corner: ['bl', 'br', 'tl', 'tr'].includes(insetRaw.corner) ? insetRaw.corner : 'bl',
+    enabled: typeof rawProps.showInset === 'boolean' ? rawProps.showInset : Boolean(insetRaw.enabled),
+    region: ['world', 'europe', 'east-asia'].includes(insetRegionVal) ? insetRegionVal : (region.insetRegion || 'world'),
+    corner: ['bl', 'br', 'tl', 'tr'].includes(insetCornerVal) ? insetCornerVal : 'bl',
     offset: normalizeOffset(insetRaw.offset),
   };
 
@@ -169,9 +261,13 @@ export function resolveMapSpec(rawProps = {}) {
     });
   }
   const explicitItems = Array.isArray(legendRaw.items) && legendRaw.items.length > 0 ? legendRaw.items : autoLegendItems;
+  const legendCornerVal = rawProps.legendCorner ?? legendRaw.corner;
+  const legendEnabled = typeof rawProps.showLegend === 'boolean'
+    ? rawProps.showLegend
+    : (legendRaw.enabled !== undefined ? Boolean(legendRaw.enabled) : explicitItems.length > 0);
   const legend = {
-    enabled: legendRaw.enabled !== undefined ? Boolean(legendRaw.enabled) : explicitItems.length > 0,
-    corner: ['bl', 'br', 'tl', 'tr'].includes(legendRaw.corner) ? legendRaw.corner : 'bl',
+    enabled: legendEnabled,
+    corner: ['bl', 'br', 'tl', 'tr'].includes(legendCornerVal) ? legendCornerVal : 'bl',
     offset: normalizeOffset(legendRaw.offset),
     items: explicitItems,
   };
@@ -207,9 +303,6 @@ export function deriveMapGeometry(_props, id, view) {
   };
 }
 
-/**
- * Parses user-supplied GeoJSON, TopoJSON, or CSV (name,lon,lat) into a normalized GeoJSON FeatureCollection + inferred layer kind.
- */
 export function parseCustomGisInput(raw) {
   if (typeof raw !== 'string' || !raw.trim()) {
     return { ok: false, error: 'GIS 데이터(GeoJSON, TopoJSON 또는 CSV)를 입력하세요.' };

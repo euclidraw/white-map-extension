@@ -96,6 +96,7 @@ export function mountMapExplorer(context, actions) {
     const previewProps = { ...active.props, viewport: active.viewport };
     active.lastMeta = paintMountVector(active.mountEl, previewProps, active.width, active.height, active.id);
     updateHudBar();
+    actions.onExploreChange?.(active.id);
   }
 
   function createHudBar() {
@@ -220,7 +221,7 @@ export function mountMapExplorer(context, actions) {
       drag: null,
       baking: false,
       lastMeta: null,
-      bar: createHudBar(),
+      bar: actions.useExternalHud ? null : createHudBar(),
     };
 
     renderPreview();
@@ -259,7 +260,7 @@ export function mountMapExplorer(context, actions) {
     if (!surface || !surface.contains(e.target)) return;
     if (e.target.closest?.('[data-map-drag], [data-wm-gizmo]')) return;
     const mountEl = e.target.closest?.('[data-role="white-map-mount"]');
-    if (!mountEl) return;
+    if (!mountEl || mountEl.dataset.mapTool) return;
     const entityId = mountEl.dataset.whiteMapId;
     if (!entityId) return;
     if (enter(entityId)) {
@@ -270,7 +271,7 @@ export function mountMapExplorer(context, actions) {
 
   function onPointerDown(e) {
     if (!active) return;
-    if (active.bar?.contains(e.target)) return;
+    if (active.bar?.contains(e.target) || e.target.closest?.('[data-wm-menubar]')) return;
     if (!active.mountEl.contains(e.target)) {
       // Clicking outside the explored map exits and commits
       exit(true);

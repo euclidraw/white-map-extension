@@ -183,30 +183,44 @@ export function parseMapCss(css) {
   return { values };
 }
 
-export function resolveMapStyle(presetId = 'admin0-highlight', customCss = '') {
+export function resolveMapStyle(presetId = 'admin0-highlight', customCss = '', overrides = {}) {
   const preset = MAP_PRINT_PRESETS.find(p => p.id === presetId) ?? MAP_PRINT_PRESETS[4];
   const parsed = parseMapCss(customCss);
   const v = parsed.values ?? {};
-  const ink = v.ink ?? preset.ink;
+  const hex = val => (typeof val === 'string' && HEX.test(val.trim()) ? val.trim() : '');
+  const validDash = val => (typeof val === 'string' && DASH.test(val.trim()) ? val.trim() : '');
+  const ovOcean = hex(overrides.oceanColor);
+  const ovLand = hex(overrides.landColor);
+  const ovInk = hex(overrides.inkColor);
+  const ovHighlight = hex(overrides.highlightColor);
+  const ovCoastWidth = Number.isFinite(overrides.coastWidth) && overrides.coastWidth >= 0.3 && overrides.coastWidth <= 4
+    ? overrides.coastWidth
+    : null;
+  const ovBorderDash = validDash(overrides.borderDash);
+  const ovFont = overrides.fontStyle === 'sans-serif' ? 'sans-serif' : (overrides.fontStyle === 'serif' ? 'serif' : '');
+
+  const ink = v.ink ?? (ovInk || preset.ink);
+  const ocean = v.ocean ?? (ovOcean || preset.ocean);
+  const fontChoice = v.font ?? (ovFont || 'serif');
   return {
     preset,
-    ocean: v.ocean ?? preset.ocean,
-    land: v.land ?? preset.land,
+    ocean,
+    land: v.land ?? (ovLand || preset.land),
     ink,
-    coast: v.coast ?? preset.coast ?? ink,
+    coast: v.coast ?? (ovInk || preset.coast || ink),
     border: v.border ?? preset.border,
     admin1: v.admin1 ?? preset.admin1,
     river: v.river ?? preset.river,
-    lake: v.lake ?? preset.lake,
-    highlight: v.highlight ?? preset.highlight,
-    coastWidth: v['coast-width'] ? parseFloat(v['coast-width']) : preset.coastWidth,
+    lake: v.lake ?? (ovOcean || preset.lake),
+    highlight: v.highlight ?? (ovHighlight || preset.highlight),
+    coastWidth: v['coast-width'] ? parseFloat(v['coast-width']) : (ovCoastWidth ?? preset.coastWidth),
     borderWidth: v['border-width'] ? parseFloat(v['border-width']) : preset.borderWidth,
     admin1Width: v['admin1-width'] ? parseFloat(v['admin1-width']) : preset.admin1Width,
     riverWidth: v['river-width'] ? parseFloat(v['river-width']) : preset.riverWidth,
     frameWidth: v['frame-width'] ? parseFloat(v['frame-width']) : preset.frameWidth,
-    borderDash: v['border-dash'] ?? preset.borderDash,
+    borderDash: v['border-dash'] ?? (ovBorderDash || preset.borderDash),
     admin1Dash: v['admin1-dash'] ?? preset.admin1Dash,
     gridDash: v['grid-dash'] ?? preset.gridDash,
-    fontFamily: v.font === 'sans-serif' ? KOREAN_SANS : MAP_FONT,
+    fontFamily: fontChoice === 'sans-serif' ? KOREAN_SANS : MAP_FONT,
   };
 }

@@ -20,7 +20,7 @@ import { createRoot } from "react-dom/client";
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.1.0",
+	version: "0.2.0",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -1433,30 +1433,41 @@ function parseMapCss(css) {
 	}
 	return { values };
 }
-function resolveMapStyle(presetId = "admin0-highlight", customCss = "") {
+function resolveMapStyle(presetId = "admin0-highlight", customCss = "", overrides = {}) {
 	const preset = MAP_PRINT_PRESETS.find((p) => p.id === presetId) ?? MAP_PRINT_PRESETS[4];
 	const v = parseMapCss(customCss).values ?? {};
-	const ink = v.ink ?? preset.ink;
+	const hex = (val) => typeof val === "string" && HEX.test(val.trim()) ? val.trim() : "";
+	const validDash = (val) => typeof val === "string" && DASH.test(val.trim()) ? val.trim() : "";
+	const ovOcean = hex(overrides.oceanColor);
+	const ovLand = hex(overrides.landColor);
+	const ovInk = hex(overrides.inkColor);
+	const ovHighlight = hex(overrides.highlightColor);
+	const ovCoastWidth = Number.isFinite(overrides.coastWidth) && overrides.coastWidth >= .3 && overrides.coastWidth <= 4 ? overrides.coastWidth : null;
+	const ovBorderDash = validDash(overrides.borderDash);
+	const ovFont = overrides.fontStyle === "sans-serif" ? "sans-serif" : overrides.fontStyle === "serif" ? "serif" : "";
+	const ink = v.ink ?? (ovInk || preset.ink);
+	const ocean = v.ocean ?? (ovOcean || preset.ocean);
+	const fontChoice = v.font ?? (ovFont || "serif");
 	return {
 		preset,
-		ocean: v.ocean ?? preset.ocean,
-		land: v.land ?? preset.land,
+		ocean,
+		land: v.land ?? (ovLand || preset.land),
 		ink,
-		coast: v.coast ?? preset.coast ?? ink,
+		coast: v.coast ?? (ovInk || preset.coast || ink),
 		border: v.border ?? preset.border,
 		admin1: v.admin1 ?? preset.admin1,
 		river: v.river ?? preset.river,
-		lake: v.lake ?? preset.lake,
-		highlight: v.highlight ?? preset.highlight,
-		coastWidth: v["coast-width"] ? parseFloat(v["coast-width"]) : preset.coastWidth,
+		lake: v.lake ?? (ovOcean || preset.lake),
+		highlight: v.highlight ?? (ovHighlight || preset.highlight),
+		coastWidth: v["coast-width"] ? parseFloat(v["coast-width"]) : ovCoastWidth ?? preset.coastWidth,
 		borderWidth: v["border-width"] ? parseFloat(v["border-width"]) : preset.borderWidth,
 		admin1Width: v["admin1-width"] ? parseFloat(v["admin1-width"]) : preset.admin1Width,
 		riverWidth: v["river-width"] ? parseFloat(v["river-width"]) : preset.riverWidth,
 		frameWidth: v["frame-width"] ? parseFloat(v["frame-width"]) : preset.frameWidth,
-		borderDash: v["border-dash"] ?? preset.borderDash,
+		borderDash: v["border-dash"] ?? (ovBorderDash || preset.borderDash),
 		admin1Dash: v["admin1-dash"] ?? preset.admin1Dash,
 		gridDash: v["grid-dash"] ?? preset.gridDash,
-		fontFamily: v.font === "sans-serif" ? KOREAN_SANS : MAP_FONT
+		fontFamily: fontChoice === "sans-serif" ? KOREAN_SANS : MAP_FONT
 	};
 }
 var DEFAULT_BASE_LAYERS = Object.freeze({
@@ -1467,18 +1478,45 @@ var DEFAULT_BASE_LAYERS = Object.freeze({
 	lakes: true,
 	graticule: "equator-left"
 });
+/**
+* Flat top-level fields bind directly to Alid's native Inspector (Props panel),
+* while structured mirrors (viewport, baseLayers, inset, legend) remain synced for
+* backward compatibility and Copilot tools.
+*/
 var MAP_DEFAULTS = Object.freeze({
 	title: "",
 	regionPreset: "east-asia-oceania",
 	projection: "mercator",
+	centerLon: 121,
+	centerLat: 11,
+	scale: 265,
+	rotateLon: 0,
+	showCoastline: true,
+	showBorders: true,
+	showAdmin1: false,
+	showRivers: false,
+	showLakes: true,
+	graticule: "equator-left",
+	showInset: false,
+	insetRegion: "world",
+	insetCorner: "bl",
+	showLegend: false,
+	legendCorner: "bl",
+	stylePreset: "admin0-highlight",
+	oceanColor: "",
+	landColor: "",
+	inkColor: "",
+	highlightColor: "",
+	coastWidth: 0,
+	borderDash: "",
+	fontStyle: "serif",
+	customCss: "",
 	viewport: {
 		centerLon: 121,
 		centerLat: 11,
 		scale: 265,
 		rotateLon: 0
 	},
-	stylePreset: "admin0-highlight",
-	customCss: "",
 	baseLayers: { ...DEFAULT_BASE_LAYERS },
 	highlights: [],
 	customLayers: [],
@@ -1512,17 +1550,51 @@ function normalizeOffset(offset) {
 		y: Number.isFinite(offset?.y) ? Math.round(offset.y) : 0
 	};
 }
+/**
+* Synchronizes flat Inspector fields from structured viewport/baseLayers/inset/legend objects.
+*/
+function syncFlatFields(props) {
+	const vp = props.viewport ?? {};
+	const bl = props.baseLayers ?? {};
+	const ins = props.inset ?? {};
+	const leg = props.legend ?? {};
+	return {
+		...props,
+		...Number.isFinite(vp.centerLon) ? { centerLon: vp.centerLon } : {},
+		...Number.isFinite(vp.centerLat) ? { centerLat: vp.centerLat } : {},
+		...Number.isFinite(vp.scale) ? { scale: vp.scale } : {},
+		...Number.isFinite(vp.rotateLon) ? { rotateLon: vp.rotateLon } : {},
+		...typeof bl.coastline === "boolean" ? { showCoastline: bl.coastline } : {},
+		...typeof bl.borders === "boolean" ? { showBorders: bl.borders } : {},
+		...typeof bl.admin1 === "boolean" ? { showAdmin1: bl.admin1 } : {},
+		...typeof bl.rivers === "boolean" ? { showRivers: bl.rivers } : {},
+		...typeof bl.lakes === "boolean" ? { showLakes: bl.lakes } : {},
+		...typeof bl.graticule === "string" ? { graticule: bl.graticule } : {},
+		...typeof ins.enabled === "boolean" ? { showInset: ins.enabled } : {},
+		...typeof ins.region === "string" ? { insetRegion: ins.region } : {},
+		...typeof ins.corner === "string" ? { insetCorner: ins.corner } : {},
+		...typeof leg.enabled === "boolean" ? { showLegend: leg.enabled } : {},
+		...typeof leg.corner === "string" ? { legendCorner: leg.corner } : {}
+	};
+}
 function createMapPropsFromThematicPreset(thematicId) {
 	const t = getThematicPreset(thematicId);
 	if (!t) return createMapPropsForRegion("east-asia-oceania", "admin0-highlight");
 	const region = getRegionPreset(t.regionPreset);
-	return {
+	return syncFlatFields({
 		...MAP_DEFAULTS,
 		title: "",
 		regionPreset: region.id,
 		projection: region.projection,
 		viewport: { ...region.viewport },
 		stylePreset: t.stylePreset,
+		oceanColor: "",
+		landColor: "",
+		inkColor: "",
+		highlightColor: "",
+		coastWidth: 0,
+		borderDash: "",
+		fontStyle: "serif",
 		customCss: "",
 		baseLayers: {
 			...DEFAULT_BASE_LAYERS,
@@ -1552,18 +1624,25 @@ function createMapPropsFromThematicPreset(thematicId) {
 			...t.legend ?? {}
 		},
 		bakedDetail: null
-	};
+	});
 }
 function createMapPropsForRegion(regionId = "east-asia-oceania", stylePresetId = "admin0-highlight") {
 	const region = getRegionPreset(regionId);
 	const preset = MAP_PRINT_PRESETS.find((p) => p.id === stylePresetId) ?? MAP_PRINT_PRESETS[4];
-	return {
+	return syncFlatFields({
 		...MAP_DEFAULTS,
 		title: "",
 		regionPreset: region.id,
 		projection: region.projection,
 		viewport: { ...region.viewport },
 		stylePreset: preset.id,
+		oceanColor: "",
+		landColor: "",
+		inkColor: "",
+		highlightColor: "",
+		coastWidth: 0,
+		borderDash: "",
+		fontStyle: "serif",
 		customCss: "",
 		baseLayers: {
 			...DEFAULT_BASE_LAYERS,
@@ -1591,11 +1670,19 @@ function createMapPropsForRegion(regionId = "east-asia-oceania", stylePresetId =
 			items: []
 		},
 		bakedDetail: null
-	};
+	});
 }
 function resolveMapSpec(rawProps = {}) {
 	const region = getRegionPreset(rawProps.regionPreset);
-	const style = resolveMapStyle(rawProps.stylePreset || "admin0-highlight", rawProps.customCss || "");
+	const style = resolveMapStyle(rawProps.stylePreset || "admin0-highlight", rawProps.customCss || "", {
+		oceanColor: rawProps.oceanColor,
+		landColor: rawProps.landColor,
+		inkColor: rawProps.inkColor,
+		highlightColor: rawProps.highlightColor,
+		coastWidth: rawProps.coastWidth,
+		borderDash: rawProps.borderDash,
+		fontStyle: rawProps.fontStyle
+	});
 	const vp = isRecord$1(rawProps.viewport) ? rawProps.viewport : region.viewport;
 	const projection = [
 		"mercator",
@@ -1603,15 +1690,24 @@ function resolveMapSpec(rawProps = {}) {
 		"conicEqualArea",
 		"equirectangular"
 	].includes(rawProps.projection) ? rawProps.projection : region.projection;
+	const rawLon = Number.isFinite(rawProps.centerLon) ? rawProps.centerLon : vp.centerLon;
+	const rawLat = Number.isFinite(rawProps.centerLat) ? rawProps.centerLat : vp.centerLat;
+	const rawScale = Number.isFinite(rawProps.scale) ? rawProps.scale : vp.scale;
+	const rawRotate = Number.isFinite(rawProps.rotateLon) ? rawProps.rotateLon : vp.rotateLon;
 	const viewport = {
-		centerLon: Number.isFinite(vp.centerLon) ? vp.centerLon : region.viewport.centerLon,
-		centerLat: Math.max(-82, Math.min(82, Number.isFinite(vp.centerLat) ? vp.centerLat : region.viewport.centerLat)),
-		scale: Math.max(30, Math.min(4e4, Number.isFinite(vp.scale) ? vp.scale : region.viewport.scale)),
-		rotateLon: Number.isFinite(vp.rotateLon) ? vp.rotateLon : region.viewport.rotateLon ?? 0
+		centerLon: Number.isFinite(rawLon) ? rawLon : region.viewport.centerLon,
+		centerLat: Math.max(-82, Math.min(82, Number.isFinite(rawLat) ? rawLat : region.viewport.centerLat)),
+		scale: Math.max(30, Math.min(4e4, Number.isFinite(rawScale) ? rawScale : region.viewport.scale)),
+		rotateLon: Number.isFinite(rawRotate) ? rawRotate : region.viewport.rotateLon ?? 0
 	};
+	const blRaw = isRecord$1(rawProps.baseLayers) ? rawProps.baseLayers : {};
 	const baseLayers = {
-		...DEFAULT_BASE_LAYERS,
-		...isRecord$1(rawProps.baseLayers) ? rawProps.baseLayers : {}
+		coastline: typeof rawProps.showCoastline === "boolean" ? rawProps.showCoastline : blRaw.coastline ?? DEFAULT_BASE_LAYERS.coastline,
+		borders: typeof rawProps.showBorders === "boolean" ? rawProps.showBorders : blRaw.borders ?? DEFAULT_BASE_LAYERS.borders,
+		admin1: typeof rawProps.showAdmin1 === "boolean" ? rawProps.showAdmin1 : blRaw.admin1 ?? DEFAULT_BASE_LAYERS.admin1,
+		rivers: typeof rawProps.showRivers === "boolean" ? rawProps.showRivers : blRaw.rivers ?? DEFAULT_BASE_LAYERS.rivers,
+		lakes: typeof rawProps.showLakes === "boolean" ? rawProps.showLakes : blRaw.lakes ?? DEFAULT_BASE_LAYERS.lakes,
+		graticule: typeof rawProps.graticule === "string" && rawProps.graticule ? rawProps.graticule : blRaw.graticule ?? DEFAULT_BASE_LAYERS.graticule
 	};
 	const highlights = Array.isArray(rawProps.highlights) ? rawProps.highlights.filter((h) => isRecord$1(h) && Array.isArray(h.codes) && h.codes.length > 0).map((h) => ({
 		level: h.level === "admin1" ? "admin1" : "admin0",
@@ -1637,19 +1733,21 @@ function resolveMapSpec(rawProps = {}) {
 		halo: a.halo !== false
 	})) : [];
 	const insetRaw = isRecord$1(rawProps.inset) ? rawProps.inset : {};
+	const insetRegionVal = rawProps.insetRegion ?? insetRaw.region;
+	const insetCornerVal = rawProps.insetCorner ?? insetRaw.corner;
 	const inset = {
-		enabled: Boolean(insetRaw.enabled),
+		enabled: typeof rawProps.showInset === "boolean" ? rawProps.showInset : Boolean(insetRaw.enabled),
 		region: [
 			"world",
 			"europe",
 			"east-asia"
-		].includes(insetRaw.region) ? insetRaw.region : region.insetRegion || "world",
+		].includes(insetRegionVal) ? insetRegionVal : region.insetRegion || "world",
 		corner: [
 			"bl",
 			"br",
 			"tl",
 			"tr"
-		].includes(insetRaw.corner) ? insetRaw.corner : "bl",
+		].includes(insetCornerVal) ? insetCornerVal : "bl",
 		offset: normalizeOffset(insetRaw.offset)
 	};
 	const legendRaw = isRecord$1(rawProps.legend) ? rawProps.legend : {};
@@ -1676,14 +1774,15 @@ function resolveMapSpec(rawProps = {}) {
 		});
 	}
 	const explicitItems = Array.isArray(legendRaw.items) && legendRaw.items.length > 0 ? legendRaw.items : autoLegendItems;
+	const legendCornerVal = rawProps.legendCorner ?? legendRaw.corner;
 	const legend = {
-		enabled: legendRaw.enabled !== void 0 ? Boolean(legendRaw.enabled) : explicitItems.length > 0,
+		enabled: typeof rawProps.showLegend === "boolean" ? rawProps.showLegend : legendRaw.enabled !== void 0 ? Boolean(legendRaw.enabled) : explicitItems.length > 0,
 		corner: [
 			"bl",
 			"br",
 			"tl",
 			"tr"
-		].includes(legendRaw.corner) ? legendRaw.corner : "bl",
+		].includes(legendCornerVal) ? legendCornerVal : "bl",
 		offset: normalizeOffset(legendRaw.offset),
 		items: explicitItems
 	};
@@ -1723,9 +1822,6 @@ function deriveMapGeometry(_props, id, view) {
 		height: Number.isFinite(bounds.height) && bounds.height > 0 ? Math.max(160, Math.round(bounds.height)) : 360
 	};
 }
-/**
-* Parses user-supplied GeoJSON, TopoJSON, or CSV (name,lon,lat) into a normalized GeoJSON FeatureCollection + inferred layer kind.
-*/
 function parseCustomGisInput(raw) {
 	if (typeof raw !== "string" || !raw.trim()) return {
 		ok: false,
@@ -122633,7 +122729,7 @@ function renderMapSvg(props, derived, entityId = "white-map") {
 	};
 }
 // src/dom-renderer.js
-var NS = "http://www.w3.org/2000/svg";
+var NS$1 = "http://www.w3.org/2000/svg";
 var injectedDocs = /* @__PURE__ */ new WeakSet();
 var mountState = /* @__PURE__ */ new WeakMap();
 var ALLOWED_TAGS = new Set("svg g defs clipPath mask pattern linearGradient radialGradient stop use path line rect circle ellipse polyline polygon text tspan title desc".split(" "));
@@ -122662,10 +122758,10 @@ function ensureDocumentCss(doc) {
 	} catch {}
 }
 function createVectorSvgNode(doc, innerMarkup, width, height, title) {
-	const parsed = new doc.defaultView.DOMParser().parseFromString(`<svg xmlns="${NS}">${innerMarkup}</svg>`, "image/svg+xml");
-	if (parsed.documentElement.namespaceURI !== NS || parsed.querySelector("parsererror")) throw new Error("백지도 SVG를 파싱하지 못했습니다.");
+	const parsed = new doc.defaultView.DOMParser().parseFromString(`<svg xmlns="${NS$1}">${innerMarkup}</svg>`, "image/svg+xml");
+	if (parsed.documentElement.namespaceURI !== NS$1 || parsed.querySelector("parsererror")) throw new Error("백지도 SVG를 파싱하지 못했습니다.");
 	for (const el of parsed.documentElement.querySelectorAll("*")) {
-		if (!ALLOWED_TAGS.has(el.localName) || el.namespaceURI !== NS) {
+		if (!ALLOWED_TAGS.has(el.localName) || el.namespaceURI !== NS$1) {
 			el.remove();
 			continue;
 		}
@@ -122696,7 +122792,7 @@ function paintMountVector(mountEl, props, width, height, entityId) {
 	if (doc.defaultView?.DOMParser) {
 		const svgNode = createVectorSvgNode(doc, svg, width, height, props?.title || "수능 백지도");
 		mountEl.replaceChildren(svgNode);
-	} else mountEl.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="${NS}">${svg}</svg>`;
+	} else mountEl.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="${NS$1}">${svg}</svg>`;
 	return meta;
 }
 /**
@@ -122728,7 +122824,7 @@ function renderMapDom(hostEl, props, derived, entityId = "white-map") {
 			y: 0,
 			rotation: 0
 		}, entityId);
-		hostEl.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="${NS}">${svg}</svg>`;
+		hostEl.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="${NS$1}">${svg}</svg>`;
 		const rendered = hostEl.firstChild;
 		return () => {
 			if (hostEl.firstChild === rendered) hostEl.innerHTML = "";
@@ -123088,6 +123184,10 @@ var COMMAND_NAMES = Object.freeze([
 	"add-custom-layer",
 	"remove-custom-layer",
 	"add-annotation",
+	"remove-annotation",
+	"remove-highlight",
+	"add-custom-point",
+	"start-tool",
 	"bake-high-res",
 	"clear-baked",
 	"reset-viewport"
@@ -123258,6 +123358,7 @@ function mountMapExplorer(context, actions) {
 		};
 		active.lastMeta = paintMountVector(active.mountEl, previewProps, active.width, active.height, active.id);
 		updateHudBar();
+		actions.onExploreChange?.(active.id);
 	}
 	function createHudBar() {
 		if (!hud || !doc) return null;
@@ -123374,7 +123475,7 @@ function mountMapExplorer(context, actions) {
 			drag: null,
 			baking: false,
 			lastMeta: null,
-			bar: createHudBar()
+			bar: actions.useExternalHud ? null : createHudBar()
 		};
 		renderPreview();
 		actions.onExploreChange?.(entityId);
@@ -123405,7 +123506,7 @@ function mountMapExplorer(context, actions) {
 		if (!surface || !surface.contains(e.target)) return;
 		if (e.target.closest?.("[data-map-drag], [data-wm-gizmo]")) return;
 		const mountEl = e.target.closest?.("[data-role=\"white-map-mount\"]");
-		if (!mountEl) return;
+		if (!mountEl || mountEl.dataset.mapTool) return;
 		const entityId = mountEl.dataset.whiteMapId;
 		if (!entityId) return;
 		if (enter(entityId)) {
@@ -123415,7 +123516,7 @@ function mountMapExplorer(context, actions) {
 	}
 	function onPointerDown(e) {
 		if (!active) return;
-		if (active.bar?.contains(e.target)) return;
+		if (active.bar?.contains(e.target) || e.target.closest?.("[data-wm-menubar]")) return;
 		if (!active.mountEl.contains(e.target)) {
 			exit(true);
 			return;
@@ -123645,7 +123746,7 @@ function mountMapGizmos(context, actions) {
 		const selectedSet = new Set(selected);
 		for (const mount of el.querySelectorAll("[data-role=\"white-map-mount\"]")) {
 			const id = mount.dataset.whiteMapId;
-			if (!selectedSet.has(id) || mount.dataset.mapExploring === "true" || context.world.isEntityReadOnly?.(id)) continue;
+			if (!selectedSet.has(id) || mount.dataset.mapExploring === "true" || mount.dataset.mapTool || context.world.isEntityReadOnly?.(id)) continue;
 			for (const boxGroup of mount.querySelectorAll("[data-map-drag=\"legend\"], [data-map-drag=\"inset\"]")) {
 				const frameEl = boxGroup.querySelector("[data-map-box-frame]") ?? boxGroup;
 				const r = frameEl.getBoundingClientRect();
@@ -123758,7 +123859,7 @@ function mountMapGizmos(context, actions) {
 			kind = meta.kind;
 		} else if (surface.contains(e.target)) {
 			const mount = e.target.closest?.("[data-role=\"white-map-mount\"]");
-			if (!mount || mount.dataset.mapExploring === "true") return;
+			if (!mount || mount.dataset.mapExploring === "true" || mount.dataset.mapTool) return;
 			targetEl = e.target.closest?.(DRAG_SELECTOR);
 			if (!targetEl) return;
 			id = mount.dataset.whiteMapId;
@@ -123875,6 +123976,760 @@ function mountMapGizmos(context, actions) {
 		detach();
 	};
 }
+// src/map-menubar.js
+var NS = "http://www.w3.org/2000/svg";
+var TOOLBAR_STYLE = `
+.wm-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;
+  max-width:calc(100% - 24px);pointer-events:none;z-index:30;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
+.wm-toolbar[hidden]{display:none}
+.wm-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);
+  border-radius:8px;background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
+.wm-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;
+  background:transparent;color:inherit;font:inherit;cursor:pointer}
+.wm-toolbar .wm-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;
+  padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);
+  box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}
+.wm-toolbar button:hover .wm-tooltip,.wm-toolbar button:focus-visible .wm-tooltip{display:block}
+.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5)}
+.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#eeeeff);color:var(--alid-accent,#2563eb)}
+.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#2563eb);outline-offset:1px}
+.wm-toolbar .wm-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}
+.wm-toolbar .wm-step{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-radius:8px;background:var(--alid-text,#18181b);
+  color:var(--alid-bg-surface,#fff);pointer-events:auto;box-shadow:0 4px 16px #0000001f;white-space:nowrap}
+.wm-toolbar .wm-step[hidden]{display:none}
+.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:#ffffff1f;color:inherit;font-size:11.5px}
+.wm-toolbar .wm-step button:hover{background:#ffffff33}
+.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#2563eb);color:#fff}
+.wm-toolbar .wm-step button:disabled{opacity:.45;cursor:default}
+`;
+var ICONS = {
+	select: ["m5 3 12 9-6 1-3 6z"],
+	explore: [
+		"M10 2v16",
+		"M2 10h16",
+		"M7 5 10 2l3 3",
+		"M7 15 10 18l3-3",
+		"M5 7 2 10l3 3",
+		"M15 7 18 10l-3 3"
+	],
+	annotation: [
+		"M4 15.5a1.5 1.5 0 1 0 0 .01",
+		"M5.2 14.3 9.5 10h7.5",
+		"M11.5 4.5h6",
+		"M14.5 4.5v4.5"
+	],
+	point: ["M10 4a6 6 0 1 0 0 12 6 6 0 1 0 0-12", {
+		d: "M10 8a2 2 0 1 0 0 4 2 2 0 1 0 0-4",
+		fill: true
+	}],
+	route: [
+		"M3.5 15.5 7.5 8l5 3.5L16.5 4.5",
+		{
+			d: "M3.5 14.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 1 0 0-2.6",
+			fill: true
+		},
+		{
+			d: "M16.5 3.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 1 0 0-2.6",
+			fill: true
+		}
+	],
+	highlight: [{
+		d: "M3.5 5.5 8.5 3l8 2.5-2 9-6.5 2.5-5-3.5z",
+		fill: true
+	}],
+	borders: ["M3 15 7.5 8l5 2.5L17 4.5"],
+	rivers: ["M3 15c3-1.2 3-4.8 6-4.8s3-3.6 6-4.8 2-1.2 2-1.2"],
+	legend: [
+		"M3 4h14v12H3z",
+		{
+			d: "M5.5 7h3.5v2.5H5.5z",
+			fill: true
+		},
+		"M10.5 8.2h4",
+		"M5.5 12.2h3.5",
+		"M10.5 12.2h4"
+	],
+	inset: ["M3 3.5h14v13H3z", "M4.5 9.5h6v5.5h-6z"],
+	bake: [
+		"M10 3v9",
+		"M6.5 8.5 10 12l3.5-3.5",
+		"M4 15.5h12"
+	]
+};
+var TOOL_ITEMS = [
+	{
+		id: "",
+		label: "선택·이동",
+		tooltip: "선택·이동 (Esc)",
+		icon: "select"
+	},
+	{ separator: true },
+	{
+		id: "explore",
+		label: "지도 탐색",
+		tooltip: "지도 프레임 탐색 (더블클릭 · 팬/휠 줌)",
+		icon: "explore"
+	},
+	{
+		id: "annotation",
+		label: "지시선 라벨",
+		tooltip: "지시선 라벨 추가 (지도 클릭 후 지명 입력)",
+		icon: "annotation"
+	},
+	{
+		id: "point",
+		label: "지점 마커",
+		tooltip: "지점 마커 추가 (수도·도넛·점 배치)",
+		icon: "point"
+	},
+	{
+		id: "route",
+		label: "경로 그리기",
+		tooltip: "경로 선 그리기 (클릭 추가 · Enter 완료)",
+		icon: "route"
+	},
+	{
+		id: "highlight",
+		label: "지역 강조",
+		tooltip: "지역 강조 (국가·성·도 클릭 토글)",
+		icon: "highlight"
+	},
+	{ separator: true },
+	{
+		id: "toggle-borders",
+		label: "국경선",
+		tooltip: "국경선 표시 토글",
+		toggleLayer: "borders",
+		icon: "borders",
+		dashed: true
+	},
+	{
+		id: "toggle-rivers",
+		label: "하천",
+		tooltip: "하천 표시 토글",
+		toggleLayer: "rivers",
+		icon: "rivers"
+	},
+	{
+		id: "toggle-legend",
+		label: "범례",
+		tooltip: "범례 박스 표시 토글",
+		icon: "legend"
+	},
+	{
+		id: "toggle-inset",
+		label: "위치 소지도",
+		tooltip: "위치 소지도 인셋 토글",
+		icon: "inset"
+	},
+	{ separator: true },
+	{
+		id: "bake",
+		label: "10m 베이크",
+		tooltip: "10m 고해상도 CDN 스냅샷 베이크",
+		icon: "bake"
+	}
+];
+function createIconSvg(doc, key, dashed = false) {
+	const paths = ICONS[key];
+	if (!paths) return null;
+	const svg = doc.createElementNS(NS, "svg");
+	for (const [k, v] of [
+		["width", "18"],
+		["height", "18"],
+		["viewBox", "0 0 20 20"],
+		["stroke-width", "1.5"],
+		["stroke-linecap", "round"],
+		["stroke-linejoin", "round"],
+		["aria-hidden", "true"],
+		["focusable", "false"]
+	]) svg.setAttribute(k, v);
+	for (const entry of paths) {
+		const p = doc.createElementNS(NS, "path");
+		const filled = typeof entry === "object" && entry.fill;
+		p.setAttribute("d", typeof entry === "string" ? entry : entry.d);
+		p.setAttribute("fill", filled ? "currentColor" : "none");
+		p.setAttribute("stroke", filled ? "none" : "currentColor");
+		if (filled && key === "highlight") p.setAttribute("fill-opacity", "0.28");
+		if (filled && key === "highlight") p.setAttribute("stroke", "currentColor");
+		if (dashed) p.setAttribute("stroke-dasharray", "3 2.5");
+		svg.append(p);
+	}
+	return svg;
+}
+function screenToGeo(mountEl, props, width, height, clientX, clientY) {
+	const svg = mountEl.querySelector("svg");
+	const resolved = resolveMapSpec(props);
+	const titleH = resolved.title ? 26 : 0;
+	const pad = 4;
+	const frameX = pad;
+	const frameY = pad + titleH;
+	const frameW = Math.max(120, width - 8);
+	const frameH = Math.max(96, height - 8 - titleH);
+	let lx = 0;
+	let ly = 0;
+	const ctm = svg?.getScreenCTM?.();
+	if (ctm && typeof ctm.inverse === "function") {
+		const inv = ctm.inverse();
+		lx = inv.a * clientX + inv.c * clientY + inv.e - frameX;
+		ly = inv.b * clientX + inv.d * clientY + inv.f - frameY;
+	} else {
+		const rect = svg?.getBoundingClientRect?.();
+		const box = rect?.width && rect?.height ? rect : mountEl.getBoundingClientRect();
+		if (!box.width || !box.height) return null;
+		lx = (clientX - box.left) / box.width * width - frameX;
+		ly = (clientY - box.top) / box.height * height - frameY;
+	}
+	const ll = createMapProjection(resolved.projection, resolved.viewport, frameW, frameH).invert?.([lx, ly]);
+	if (!ll || !Number.isFinite(ll[0]) || !Number.isFinite(ll[1])) return null;
+	return {
+		lon: Math.round(ll[0] * 1e3) / 1e3,
+		lat: Math.round(ll[1] * 1e3) / 1e3,
+		resolved
+	};
+}
+/**
+* Top-fixed canvas HUD toolbar matching alid-stem-extensions' FigureToolbar pattern:
+* - Pinned horizontally at top-center (`left: 50%; top: 12px; transform: translateX(-50%)`)
+* - Pure CSS hover/focus tooltips (`role="tooltip"`) below each icon button
+* - Contextual second row (`.wm-step`) for active placement tools & exploration status
+*/
+function mountMapMenubar(context, actions) {
+	const provider = context?.services?.get?.("canvas.active-tool-surface");
+	let surface = null;
+	let hud = null;
+	let doc = null;
+	let rootEl = null;
+	let rowEl = null;
+	let stepEl = null;
+	let promptEl = null;
+	let themeObserver = null;
+	let activeTool = null;
+	let baking = false;
+	let frame = null;
+	function findMount(id) {
+		if (!surface || !id) return null;
+		for (const el of surface.querySelectorAll("[data-role=\"white-map-mount\"]")) if (el.dataset.whiteMapId === id) return el;
+		return null;
+	}
+	function currentTargetId() {
+		const exploringId = actions.getExploringId?.();
+		if (exploringId) return exploringId;
+		if (activeTool?.id) return activeTool.id;
+		const selected = (provider?.get?.())?.selection?.getSelection?.() ?? [];
+		if (selected.length === 1 && context.world?.getCanonical?.(selected[0], MAP_ASPECT_ID)) return selected[0];
+		return null;
+	}
+	function closePrompt() {
+		if (promptEl) {
+			promptEl.remove();
+			promptEl = null;
+		}
+	}
+	function clearTool() {
+		closePrompt();
+		if (activeTool) {
+			const { mountEl } = activeTool;
+			delete mountEl.dataset.canvasUi;
+			delete mountEl.dataset.escapeOwner;
+			delete mountEl.dataset.mapTool;
+			mountEl.style.cursor = "";
+			activeTool = null;
+		}
+		schedule();
+	}
+	function finishRoute() {
+		if (!activeTool || activeTool.mode !== "route") return;
+		const { id, coords, doubleLine } = activeTool;
+		if (coords.length >= 2) actions.addCustomLayer(id, {
+			id: `route-${Date.now()}`,
+			name: doubleLine ? "경로 (이중선)" : "경로",
+			kind: "line",
+			visible: true,
+			showInLegend: true,
+			style: {
+				stroke: "#171717",
+				strokeWidth: doubleLine ? 3.2 : 1.5,
+				dash: "none",
+				doubleLine: Boolean(doubleLine)
+			},
+			geojson: {
+				type: "FeatureCollection",
+				features: [{
+					type: "Feature",
+					properties: { name: "경로" },
+					geometry: {
+						type: "LineString",
+						coordinates: coords
+					}
+				}]
+			}
+		});
+		clearTool();
+	}
+	function startTool(id, mode) {
+		if (!mode) {
+			actions.exitExplore?.(true);
+			clearTool();
+			return;
+		}
+		if (mode === "explore") {
+			clearTool();
+			actions.enterExplore?.(id);
+			schedule();
+			return;
+		}
+		actions.exitExplore?.(true);
+		if (activeTool?.id === id && activeTool.mode === mode) {
+			clearTool();
+			return;
+		}
+		clearTool();
+		const mountEl = findMount(id);
+		if (!mountEl || context.world.isEntityReadOnly?.(id)) return;
+		mountEl.dataset.canvasUi = "true";
+		mountEl.dataset.escapeOwner = "true";
+		mountEl.dataset.mapTool = mode;
+		mountEl.style.cursor = "crosshair";
+		activeTool = {
+			id,
+			mode,
+			mountEl,
+			marker: "bullseye",
+			doubleLine: false,
+			coords: []
+		};
+		schedule();
+	}
+	function openAnnotationPrompt(id, lon, lat, clientX, clientY) {
+		closePrompt();
+		if (!hud || !doc) return;
+		const hb = hud.getBoundingClientRect();
+		const wrap = doc.createElement("div");
+		wrap.dataset.canvasUi = "true";
+		wrap.dataset.escapeOwner = "true";
+		wrap.dataset.wmAnnotationPrompt = "true";
+		const px = Math.max(8, Math.min(Math.max(8, hb.width - 210), Math.round(clientX - hb.left + 10)));
+		const py = Math.max(52, Math.min(Math.max(52, hb.height - 40), Math.round(clientY - hb.top - 16)));
+		Object.assign(wrap.style, {
+			position: "absolute",
+			left: `${px}px`,
+			top: `${py}px`,
+			display: "inline-flex",
+			alignItems: "center",
+			gap: "4px",
+			padding: "4px 6px",
+			borderRadius: "6px",
+			background: "var(--alid-bg-surface, #ffffff)",
+			border: "1.5px solid var(--alid-accent, #2563eb)",
+			boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
+			pointerEvents: "auto",
+			zIndex: "40"
+		});
+		const input = doc.createElement("input");
+		input.type = "text";
+		input.placeholder = "지명 입력 후 Enter";
+		input.dataset.canvasEditor = "true";
+		Object.assign(input.style, {
+			width: "132px",
+			fontSize: "12px",
+			border: "none",
+			outline: "none",
+			background: "transparent",
+			color: "var(--alid-text, #18181b)"
+		});
+		let composing = false;
+		input.addEventListener("compositionstart", () => {
+			composing = true;
+		});
+		input.addEventListener("compositionend", () => {
+			composing = false;
+		});
+		const commit = () => {
+			const text = input.value.trim();
+			closePrompt();
+			if (!text) return;
+			actions.addAnnotation(id, {
+				id: `ann-${Date.now()}`,
+				lon,
+				lat,
+				text,
+				dx: 26,
+				dy: -12,
+				leaderLine: true,
+				halo: true
+			});
+		};
+		input.addEventListener("keydown", (e) => {
+			if (composing || e.isComposing || e.keyCode === 229) return;
+			if (e.key === "Enter") {
+				e.preventDefault();
+				e.stopPropagation();
+				commit();
+			} else if (e.key === "Escape") {
+				e.preventDefault();
+				e.stopPropagation();
+				closePrompt();
+			}
+		});
+		const okBtn = doc.createElement("button");
+		okBtn.type = "button";
+		okBtn.textContent = "추가";
+		Object.assign(okBtn.style, {
+			padding: "2px 7px",
+			borderRadius: "4px",
+			border: "none",
+			background: "var(--alid-accent, #2563eb)",
+			color: "#ffffff",
+			fontSize: "11px",
+			fontWeight: "600",
+			cursor: "pointer"
+		});
+		okBtn.addEventListener("click", (e) => {
+			e.stopPropagation();
+			commit();
+		});
+		wrap.append(input, okBtn);
+		hud.append(wrap);
+		promptEl = wrap;
+		input.focus?.();
+	}
+	function ensureToolbar() {
+		if (rootEl || !hud || !doc) return;
+		rootEl = doc.createElement("div");
+		rootEl.className = "wm-toolbar";
+		rootEl.dataset.canvasUi = "";
+		rootEl.dataset.wmMenubar = "true";
+		rootEl.hidden = true;
+		const syncTheme = () => {
+			const theme = doc.documentElement?.dataset?.alidTheme;
+			if (theme === "light" || theme === "dark") rootEl.dataset.alidTheme = theme;
+			else delete rootEl.dataset.alidTheme;
+		};
+		syncTheme();
+		if (typeof doc.defaultView?.MutationObserver === "function" && doc.documentElement) {
+			themeObserver = new doc.defaultView.MutationObserver(syncTheme);
+			themeObserver.observe(doc.documentElement, {
+				attributes: true,
+				attributeFilter: ["data-alid-theme"]
+			});
+		}
+		const style = doc.createElement("style");
+		style.textContent = TOOLBAR_STYLE;
+		rowEl = doc.createElement("div");
+		rowEl.className = "wm-toolbar-row";
+		rowEl.setAttribute("role", "toolbar");
+		rowEl.setAttribute("aria-label", "백지도 도구");
+		for (const item of TOOL_ITEMS) {
+			if (item.separator) {
+				const sep = doc.createElement("span");
+				sep.className = "wm-sep";
+				sep.setAttribute("role", "separator");
+				rowEl.append(sep);
+				continue;
+			}
+			const btn = doc.createElement("button");
+			btn.type = "button";
+			btn.dataset.wmToolBtn = item.id;
+			btn.setAttribute("aria-label", item.label);
+			const icon = createIconSvg(doc, item.icon, item.dashed);
+			if (icon) btn.append(icon);
+			else btn.append(doc.createTextNode(item.label));
+			const tooltip = doc.createElement("span");
+			tooltip.className = "wm-tooltip";
+			tooltip.setAttribute("role", "tooltip");
+			tooltip.textContent = item.tooltip;
+			btn.append(tooltip);
+			btn.addEventListener("click", async (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				const id = currentTargetId();
+				if (!id) return;
+				if (item.id === "" || item.id === "explore" || [
+					"annotation",
+					"point",
+					"route",
+					"highlight"
+				].includes(item.id)) startTool(id, item.id);
+				else if (item.toggleLayer) actions.toggleLayer(id, item.toggleLayer);
+				else if (item.id === "toggle-legend") actions.toggleLegend(id);
+				else if (item.id === "toggle-inset") actions.toggleInset(id);
+				else if (item.id === "bake" && !baking) {
+					baking = true;
+					schedule();
+					try {
+						await actions.bakeHighRes(id);
+					} finally {
+						baking = false;
+						schedule();
+					}
+				}
+				schedule();
+			});
+			rowEl.append(btn);
+		}
+		stepEl = doc.createElement("div");
+		stepEl.className = "wm-step";
+		stepEl.setAttribute("role", "status");
+		stepEl.hidden = true;
+		rootEl.append(style, rowEl, stepEl);
+		hud.append(rootEl);
+	}
+	function renderStepRow(id, exploringId, props) {
+		if (!stepEl || !doc) return;
+		stepEl.replaceChildren();
+		if (exploringId === id) {
+			const vp = actions.getExploringViewport?.();
+			const span = doc.createElement("span");
+			span.dataset.wmHudInfo = "true";
+			span.textContent = vp ? `탐색 중 (${vp.centerLat.toFixed(1)}°N, ${vp.centerLon.toFixed(1)}°E · ×${Math.round(vp.scale)}) · 드래그 이동, 휠 줌` : "지도 프레임 탐색 중 · 드래그 이동, 휠 줌";
+			stepEl.append(span);
+			if (vp && (isDeepZoomScale(vp.scale) || baking)) {
+				const bakeBtn = doc.createElement("button");
+				bakeBtn.type = "button";
+				bakeBtn.dataset.wmHudBake = "true";
+				bakeBtn.dataset.active = "true";
+				bakeBtn.disabled = baking;
+				bakeBtn.textContent = baking ? "10m 베이크 중…" : "10m 고해상도 베이크";
+				bakeBtn.addEventListener("click", async (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					if (baking) return;
+					baking = true;
+					schedule();
+					try {
+						await actions.bakeFromExplore?.(id);
+					} finally {
+						baking = false;
+						schedule();
+					}
+				});
+				stepEl.append(bakeBtn);
+			}
+			const doneBtn = doc.createElement("button");
+			doneBtn.type = "button";
+			doneBtn.textContent = "완료 (Esc)";
+			doneBtn.addEventListener("click", (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				actions.exitExplore?.(true);
+				schedule();
+			});
+			stepEl.append(doneBtn);
+			stepEl.hidden = false;
+			return;
+		}
+		if (!activeTool || activeTool.id !== id) {
+			stepEl.hidden = true;
+			return;
+		}
+		const msg = doc.createElement("span");
+		if (activeTool.mode === "annotation") {
+			msg.textContent = "지도 위를 클릭해 지시선 라벨을 배치하세요";
+			stepEl.append(msg);
+		} else if (activeTool.mode === "point") {
+			msg.textContent = "마커 배치:";
+			stepEl.append(msg);
+			for (const [mKey, mLabel] of [
+				["bullseye", "수도 ◎"],
+				["ring", "도넛 ○"],
+				["dot", "점 ●"]
+			]) {
+				const b = doc.createElement("button");
+				b.type = "button";
+				b.textContent = mLabel;
+				if (activeTool.marker === mKey) b.dataset.active = "true";
+				b.addEventListener("click", (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					if (activeTool) {
+						activeTool.marker = mKey;
+						schedule();
+					}
+				});
+				stepEl.append(b);
+			}
+		} else if (activeTool.mode === "route") {
+			msg.textContent = `경로 꼭짓점 ${activeTool.coords.length}개 · 클릭 추가`;
+			const styleBtn = doc.createElement("button");
+			styleBtn.type = "button";
+			styleBtn.textContent = activeTool.doubleLine ? "이중선" : "단선";
+			if (activeTool.doubleLine) styleBtn.dataset.active = "true";
+			styleBtn.addEventListener("click", (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				if (activeTool) {
+					activeTool.doubleLine = !activeTool.doubleLine;
+					schedule();
+				}
+			});
+			const finishBtn = doc.createElement("button");
+			finishBtn.type = "button";
+			finishBtn.textContent = "완료";
+			finishBtn.disabled = activeTool.coords.length < 2;
+			if (activeTool.coords.length >= 2) finishBtn.dataset.active = "true";
+			finishBtn.addEventListener("click", (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				finishRoute();
+			});
+			stepEl.append(msg, styleBtn, finishBtn);
+		} else if (activeTool.mode === "highlight") {
+			msg.textContent = "국가·성·도를 클릭해 강조를 토글하세요";
+			stepEl.append(msg);
+		}
+		const cancelBtn = doc.createElement("button");
+		cancelBtn.type = "button";
+		cancelBtn.textContent = "도구 끄기";
+		cancelBtn.addEventListener("click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			clearTool();
+		});
+		stepEl.append(cancelBtn);
+		stepEl.hidden = false;
+	}
+	function paint() {
+		ensureToolbar();
+		if (!rootEl || !rowEl || !hud) return;
+		const id = currentTargetId();
+		const mountEl = id ? findMount(id) : null;
+		if (!id || !mountEl || context.world.isEntityReadOnly?.(id)) {
+			rootEl.hidden = true;
+			return;
+		}
+		rootEl.hidden = false;
+		const exploringId = actions.getExploringId?.() ?? null;
+		const props = context.world.getCanonical(id, MAP_ASPECT_ID);
+		const resolved = props ? resolveMapSpec(props) : null;
+		const currentMode = exploringId === id ? "explore" : activeTool?.id === id ? activeTool.mode : "";
+		for (const btn of rowEl.querySelectorAll("button[data-wm-tool-btn]")) {
+			const bid = btn.dataset.wmToolBtn;
+			const pressed = bid === "" || bid === "explore" || [
+				"annotation",
+				"point",
+				"route",
+				"highlight"
+			].includes(bid) ? bid === currentMode : Boolean(resolved && (bid === "toggle-borders" && resolved.baseLayers.borders || bid === "toggle-rivers" && resolved.baseLayers.rivers || bid === "toggle-legend" && resolved.legend.enabled || bid === "toggle-inset" && resolved.inset.enabled));
+			btn.setAttribute("aria-pressed", String(pressed));
+		}
+		renderStepRow(id, exploringId, props);
+	}
+	function schedule() {
+		const win = doc?.defaultView;
+		if (win?.requestAnimationFrame && frame == null) frame = win.requestAnimationFrame(() => {
+			frame = null;
+			paint();
+		});
+	}
+	function onPointerDown(e) {
+		if (!activeTool || e.button !== 0 || e.isPrimary === false) return;
+		if (rootEl?.contains(e.target) || promptEl?.contains(e.target)) return;
+		if (!activeTool.mountEl.contains(e.target)) {
+			clearTool();
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		const { id, mode, mountEl } = activeTool;
+		const props = context.world.getCanonical(id, MAP_ASPECT_ID);
+		const bounds = context.world.getCanonical(id, "core.bounds") ?? {
+			width: 480,
+			height: 360
+		};
+		const geo = props ? screenToGeo(mountEl, props, bounds.width || 480, bounds.height || 360, e.clientX, e.clientY) : null;
+		if (!geo) return;
+		if (mode === "annotation") openAnnotationPrompt(id, geo.lon, geo.lat, e.clientX, e.clientY);
+		else if (mode === "point") actions.addCustomPoint(id, geo.lon, geo.lat, activeTool.marker);
+		else if (mode === "route") {
+			activeTool.coords.push([geo.lon, geo.lat]);
+			schedule();
+		} else if (mode === "highlight") {
+			const level = geo.resolved.baseLayers.admin1 ? "admin1" : "admin0";
+			const hit = hitTestAdminFeature(geo.lon, geo.lat, level, props.bakedDetail);
+			if (hit?.code) actions.toggleHighlight(id, hit.level, hit.code);
+		}
+	}
+	function onDblClick(e) {
+		if (activeTool?.mode === "route" && activeTool.mountEl.contains(e.target)) {
+			e.preventDefault();
+			e.stopPropagation();
+			finishRoute();
+		}
+	}
+	function onKeyDown(e) {
+		if (!activeTool) return;
+		if (promptEl?.contains(e.target)) return;
+		if (e.key === "Escape") {
+			e.preventDefault();
+			e.stopPropagation();
+			clearTool();
+		} else if (e.key === "Enter" && activeTool.mode === "route") {
+			e.preventDefault();
+			e.stopPropagation();
+			finishRoute();
+		}
+	}
+	function detach() {
+		clearTool();
+		if (frame != null) {
+			doc?.defaultView?.cancelAnimationFrame?.(frame);
+			frame = null;
+		}
+		themeObserver?.disconnect();
+		themeObserver = null;
+		if (rootEl) {
+			rootEl.remove();
+			rootEl = rowEl = stepEl = null;
+		}
+		if (doc) {
+			doc.removeEventListener("pointerdown", onPointerDown, true);
+			doc.removeEventListener("dblclick", onDblClick, true);
+			doc.removeEventListener("keydown", onKeyDown, true);
+		}
+		doc = surface = hud = null;
+	}
+	function attach() {
+		const s = provider?.get?.();
+		const nextSurface = s?.surface?.element ?? null;
+		const nextHud = s?.surface?.hud ?? null;
+		if (nextSurface === surface && nextHud === hud) {
+			schedule();
+			return;
+		}
+		detach();
+		surface = nextSurface;
+		hud = nextHud;
+		doc = surface?.ownerDocument ?? null;
+		if (!doc?.addEventListener) {
+			doc = null;
+			return;
+		}
+		doc.addEventListener("pointerdown", onPointerDown, true);
+		doc.addEventListener("dblclick", onDblClick, true);
+		doc.addEventListener("keydown", onKeyDown, true);
+		schedule();
+	}
+	attach();
+	const offSurface = provider?.subscribe?.(attach);
+	const offFrames = context?.services?.get?.("canvas.frames")?.subscribe?.(schedule);
+	const offWorld = context?.world?.subscribe?.(schedule);
+	return {
+		startTool,
+		clearTool,
+		refresh: schedule,
+		getActiveTool: () => activeTool ? {
+			id: activeTool.id,
+			mode: activeTool.mode
+		} : null,
+		dispose() {
+			offWorld?.();
+			offFrames?.();
+			offSurface?.();
+			detach();
+		}
+	};
+}
 // src/panel.js
 var h = React.createElement;
 function readSelectedMap(world, selectedIds) {
@@ -123915,8 +124770,16 @@ var inputStyle = {
 	color: "inherit",
 	fontSize: "11.5px"
 };
+/**
+* Focused Map Tab Panel:
+* Scalar properties (projection, center/scale, layers, legend/inset, colors, line style, 10m bake)
+* live natively in Alid's Props (Inspector) panel, and quick placement tools live in the floating
+* horizontal hover tooltip menubar above each map. This tab stays focused on templates, regional
+* library browsing, custom GIS import/layer management, and multiline --map-* CSS editing.
+*/
 function WhiteMapStudioView({ context }) {
 	const [tick, setTick] = useState(0);
+	const [regionQuery, setRegionQuery] = useState("");
 	const [cssDraft, setCssDraft] = useState("");
 	const [gisName, setGisName] = useState("사용자 레이어");
 	const [gisDraft, setGisDraft] = useState("name,lon,lat\n서울,126.98,37.56\n부산,129.07,35.18");
@@ -123925,13 +124788,9 @@ function WhiteMapStudioView({ context }) {
 	const [gisMarker, setGisMarker] = useState("bullseye");
 	const [gisDoubleLine, setGisDoubleLine] = useState(false);
 	const [gisStatus, setGisStatus] = useState(null);
-	const [bakeStatus, setBakeStatus] = useState(null);
 	const [hlLevel, setHlLevel] = useState("admin0");
 	const [hlCodes, setHlCodes] = useState("410, 156, 392");
 	const [hlLabel, setHlLabel] = useState("A 지역");
-	const [annText, setAnnText] = useState("서울");
-	const [annLon, setAnnLon] = useState("126.98");
-	const [annLat, setAnnLat] = useState("37.56");
 	useEffect(() => {
 		if (!context) return void 0;
 		const bump = () => setTick((v) => v + 1);
@@ -123949,8 +124808,12 @@ function WhiteMapStudioView({ context }) {
 	const resolved = useMemo(() => selected ? resolveMapSpec(selected.props) : null, [selected]);
 	useEffect(() => {
 		setCssDraft(selected?.props?.customCss ?? "");
-		setBakeStatus(null);
 	}, [selected?.id, selected?.props?.customCss]);
+	const filteredRegions = useMemo(() => {
+		const q = regionQuery.trim().toLowerCase();
+		if (!q) return REGION_PRESETS;
+		return REGION_PRESETS.filter((r) => r.nameKo.toLowerCase().includes(q) || r.nameEn.toLowerCase().includes(q) || r.id.toLowerCase().includes(q));
+	}, [regionQuery]);
 	const cssCheck = parseMapCss(cssDraft);
 	const exec = (cmd, args = {}) => context?.executeCommand?.(`${EXTENSION_ID}:${cmd}`, args);
 	const handleApplyThematic = (thematicId) => {
@@ -123960,28 +124823,12 @@ function WhiteMapStudioView({ context }) {
 		});
 		else exec("insert-map", { thematicId });
 	};
-	const handleBakeHighRes = async () => {
-		if (!selected) return;
-		setBakeStatus({
-			ok: true,
-			message: "공개 GIS CDN에서 10m 정밀 경계를 가져와 베이크 중…"
+	const handleSelectRegion = (regionId) => {
+		if (selected) exec("set-region", {
+			entityId: selected.id,
+			regionPreset: regionId
 		});
-		try {
-			const result = await exec("bake-high-res", { entityId: selected.id });
-			if (result?.ok) setBakeStatus({
-				ok: true,
-				message: `10m 고해상도 스냅샷 베이크 완료 (${result.featureCount}개 피처)`
-			});
-			else setBakeStatus({
-				ok: false,
-				message: result?.error || "고해상도 베이크에 실패했습니다."
-			});
-		} catch (error) {
-			setBakeStatus({
-				ok: false,
-				message: error instanceof Error ? error.message : String(error)
-			});
-		}
+		else exec("insert-map", { regionPreset: regionId });
 	};
 	const handleAddCustomGis = () => {
 		if (!selected) return;
@@ -124031,29 +124878,13 @@ function WhiteMapStudioView({ context }) {
 		exec("update-style", {
 			entityId: selected.id,
 			highlights: nextHighlights,
-			...hlLabel.trim() ? { legend: {
-				...selected.props.legend ?? {},
-				enabled: true
-			} } : {}
-		});
-	};
-	const handleAddAnnotation = () => {
-		if (!selected) return;
-		const lon = Number(annLon);
-		const lat = Number(annLat);
-		if (!annText.trim() || !Number.isFinite(lon) || !Number.isFinite(lat)) return;
-		exec("add-annotation", {
-			entityId: selected.id,
-			annotation: {
-				id: `ann-${Date.now()}`,
-				lon,
-				lat,
-				text: annText.trim(),
-				dx: 24,
-				dy: -10,
-				leaderLine: true,
-				halo: true
-			}
+			...hlLabel.trim() ? {
+				showLegend: true,
+				legend: {
+					...selected.props.legend ?? {},
+					enabled: true
+				}
+			} : {}
 		});
 	};
 	return h("div", { style: {
@@ -124072,14 +124903,14 @@ function WhiteMapStudioView({ context }) {
 	} }, h("div", null, h("div", { style: {
 		fontWeight: 700,
 		fontSize: "13px"
-	} }, "수능 백지도 스튜디오"), h("div", { style: {
+	} }, "수능 백지도"), h("div", { style: {
 		color: "var(--alid-text-muted, #71717a)",
 		fontSize: "11px"
-	} }, selected ? `선택됨: ${resolved.region.nameKo} (${resolved.bakedDetail ? "10m 베이크" : "50m 오프라인"})` : "예제 템플릿이나 새 백지도를 클릭해 캔버스에 추가하세요")), h("button", {
+	} }, selected ? `선택됨: ${resolved.region.nameKo} (${resolved.bakedDetail ? "10m 베이크" : "50m 오프라인"})` : "템플릿이나 지역을 선택해 캔버스에 추가하세요")), h("button", {
 		type: "button",
 		onClick: () => void exec("insert-map", {}),
 		style: btnStyle(true)
-	}, "+ 새 백지도")), h("div", { style: boxStyle }, h("div", { style: {
+	}, "+ 새 백지도")), h("small", { style: { color: "var(--alid-text-muted, #71717a)" } }, "세부 레이어·좌표·색상 속성은 속성(Props) 패널에서, 라벨·마커·경로 배치는 지도 위 가로 툴바에서 바로 사용할 수 있습니다."), h("div", { style: boxStyle }, h("div", { style: {
 		fontWeight: 600,
 		fontSize: "11.5px"
 	} }, "수능 백지도 예제 프리셋 (5종)"), h("div", { style: {
@@ -124107,143 +124938,55 @@ function WhiteMapStudioView({ context }) {
 	} }, tp.name), h("span", { style: {
 		fontSize: "10.5px",
 		color: "var(--alid-text-muted, #71717a)"
-	} }, tp.summary))))), selected && resolved ? h(React.Fragment, null, h("div", { style: boxStyle }, h("div", { style: {
-		display: "flex",
-		justifyContent: "space-between",
-		alignItems: "center"
-	} }, h("strong", { style: { fontSize: "11.5px" } }, "지역 · 투영 · 프레임 탐색"), h("button", {
-		type: "button",
-		onClick: () => void exec("explore-map", { entityId: selected.id }),
-		style: btnStyle(true)
-	}, "프레임 탐색 (더블클릭)")), h("small", { style: { color: "var(--alid-text-muted, #71717a)" } }, "지도 안을 더블클릭하면 캔버스 줌·드래그를 가로채 지도 내부를 팬/줌합니다. 탐색 중 Shift+클릭으로 국가·행정구역 강조 토글, Esc로 완료."), h("label", { style: {
+	} }, tp.summary))))), h("details", { style: boxStyle }, h("summary", { style: {
+		fontWeight: 600,
+		fontSize: "11.5px",
+		cursor: "pointer"
+	} }, `지역 프리셋 라이브러리 (${REGION_PRESETS.length}종)`), h("div", { style: {
 		display: "grid",
-		gap: "3px"
-	} }, h("span", null, "지역 중심 프리셋"), h("select", {
-		value: resolved.regionPreset,
-		onChange: (e) => void exec("set-region", {
-			entityId: selected.id,
-			regionPreset: e.target.value
-		}),
-		style: inputStyle
-	}, ...REGION_PRESETS.map((r) => h("option", {
-		key: r.id,
-		value: r.id
-	}, r.nameKo)))), h("label", { style: {
-		display: "grid",
-		gap: "3px"
-	} }, h("span", null, "지도 투영법"), h("select", {
-		value: resolved.projection,
-		onChange: (e) => void exec("update-style", {
-			entityId: selected.id,
-			projection: e.target.value
-		}),
-		style: inputStyle
-	}, h("option", { value: "mercator" }, "메르카토르 (Mercator · 지역/상세)"), h("option", { value: "naturalEarth1" }, "내추럴 어스 (Natural Earth · 세계 분포)"), h("option", { value: "conicEqualArea" }, "원뿔 정적 도법 (Conic Equal-Area)"), h("option", { value: "equirectangular" }, "정방형 도법 (Equirectangular)"))), h("div", { style: {
-		fontSize: "10.5px",
-		color: "var(--alid-text-muted, #71717a)",
-		fontVariantNumeric: "tabular-nums"
-	} }, `중심: ${resolved.viewport.centerLat.toFixed(2)}°N, ${resolved.viewport.centerLon.toFixed(2)}°E · 배율 ×${Math.round(resolved.viewport.scale)}`), h("div", { style: {
-		display: "flex",
 		gap: "6px",
-		flexWrap: "wrap"
-	} }, h("button", {
-		type: "button",
-		onClick: handleBakeHighRes,
-		style: btnStyle(isDeepZoomScale(resolved.viewport.scale) && !resolved.bakedDetail)
-	}, resolved.bakedDetail ? "10m 고해상도 다시 베이크" : "10m 고해상도 CDN 베이크"), resolved.bakedDetail && h("button", {
-		type: "button",
-		onClick: () => void exec("clear-baked", { entityId: selected.id }),
-		style: btnStyle(false)
-	}, "50m 오프라인 복원"), h("button", {
-		type: "button",
-		onClick: () => void exec("reset-viewport", { entityId: selected.id }),
-		style: btnStyle(false)
-	}, "시점 초기화")), bakeStatus && h("small", { style: { color: bakeStatus.ok ? "#16a34a" : "#dc2626" } }, bakeStatus.message)), h("details", {
+		marginTop: "6px"
+	} }, h("input", {
+		type: "search",
+		value: regionQuery,
+		onChange: (e) => setRegionQuery(e.target.value),
+		placeholder: "지역 검색 (예: 한반도, 동북3성, 유럽, 페마른…)",
+		style: inputStyle
+	}), h("div", { style: {
+		display: "grid",
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		gap: "5px",
+		maxHeight: "150px",
+		overflowY: "auto"
+	} }, ...filteredRegions.map((r) => {
+		const isActive = resolved?.regionPreset === r.id;
+		return h("button", {
+			key: r.id,
+			type: "button",
+			onClick: () => handleSelectRegion(r.id),
+			style: {
+				textAlign: "left",
+				padding: "5px 7px",
+				borderRadius: "6px",
+				border: isActive ? "1.5px solid #2563eb" : "1px solid var(--alid-border-subtle, #e4e4e7)",
+				background: isActive ? "rgba(37,99,235,0.08)" : "var(--alid-bg-surface, #ffffff)",
+				color: "inherit",
+				fontSize: "11px",
+				cursor: "pointer"
+			}
+		}, r.nameKo);
+	})))), selected && resolved ? h(React.Fragment, null, h("details", {
 		open: true,
 		style: boxStyle
 	}, h("summary", { style: {
 		fontWeight: 600,
 		fontSize: "11.5px",
 		cursor: "pointer"
-	} }, "기본 레이어 · 국경 · 하천 · 인셋"), h("div", { style: {
-		display: "grid",
-		gridTemplateColumns: "repeat(2, 1fr)",
-		gap: "4px",
-		marginTop: "6px"
-	} }, ...[
-		["coastline", "해안선 (실선)"],
-		["borders", "국경선 (파선)"],
-		["admin1", "성·도 경계 (점선)"],
-		["rivers", "하천"],
-		["lakes", "호수"]
-	].map(([key, label]) => h("label", {
-		key,
-		style: {
-			display: "flex",
-			alignItems: "center",
-			gap: "5px",
-			cursor: "pointer"
-		}
-	}, h("input", {
-		type: "checkbox",
-		checked: Boolean(resolved.baseLayers[key]),
-		onChange: () => void exec("toggle-layer", {
-			entityId: selected.id,
-			layer: key
-		})
-	}), h("span", null, label))), h("label", { style: {
-		display: "flex",
-		alignItems: "center",
-		gap: "5px",
-		cursor: "pointer"
-	} }, h("input", {
-		type: "checkbox",
-		checked: resolved.inset.enabled,
-		onChange: (e) => void exec("update-style", {
-			entityId: selected.id,
-			inset: {
-				...resolved.inset,
-				enabled: e.target.checked
-			}
-		})
-	}), h("span", null, "위치 소지도 인셋")), h("label", { style: {
-		display: "flex",
-		alignItems: "center",
-		gap: "5px",
-		cursor: "pointer"
-	} }, h("input", {
-		type: "checkbox",
-		checked: resolved.legend.enabled,
-		onChange: (e) => void exec("update-style", {
-			entityId: selected.id,
-			legend: {
-				...resolved.legend,
-				enabled: e.target.checked
-			}
-		})
-	}), h("span", null, "범례 박스"))), h("label", { style: {
-		display: "grid",
-		gap: "3px",
-		marginTop: "6px"
-	} }, h("span", null, "적도 · 위경선 표시"), h("select", {
-		value: resolved.baseLayers.graticule || "none",
-		onChange: (e) => void exec("update-style", {
-			entityId: selected.id,
-			baseLayers: {
-				...resolved.baseLayers,
-				graticule: e.target.value
-			}
-		}),
-		style: inputStyle
-	}, h("option", { value: "none" }, "표시 안 함"), h("option", { value: "equator-left" }, "좌측 0° 적도 눈금"), h("option", { value: "equator-right" }, "우측 0° 적도 눈금"), h("option", { value: "grid" }, "10° 위경선 격자")))), h("details", { style: boxStyle }, h("summary", { style: {
-		fontWeight: 600,
-		fontSize: "11.5px",
-		cursor: "pointer"
-	} }, "커스텀 GIS 매핑 · 지역 강조 · 지시선 라벨"), h("div", { style: {
+	} }, "커스텀 GIS 임포트 · 레이어 관리"), h("div", { style: {
 		display: "grid",
 		gap: "6px",
 		marginTop: "6px"
-	} }, h("strong", { style: { fontSize: "11px" } }, "GeoJSON / TopoJSON / CSV 레이어 추가"), h("input", {
+	} }, h("input", {
 		value: gisName,
 		onChange: (e) => setGisName(e.target.value),
 		placeholder: "레이어/범례 이름",
@@ -124276,7 +125019,7 @@ function WhiteMapStudioView({ context }) {
 		type: "checkbox",
 		checked: gisDoubleLine,
 		onChange: (e) => setGisDoubleLine(e.target.checked)
-	}), h("span", null, "경로 이중선 (터널/철도)"))), h("textarea", {
+	}), h("span", null, "경로 이중선"))), h("textarea", {
 		rows: 4,
 		value: gisDraft,
 		onChange: (e) => setGisDraft(e.target.value),
@@ -124290,7 +125033,7 @@ function WhiteMapStudioView({ context }) {
 		type: "button",
 		onClick: handleAddCustomGis,
 		style: btnStyle(true)
-	}, "GIS 레이어 추가"), resolved.customLayers.length > 0 && h("div", { style: {
+	}, "GeoJSON / TopoJSON / CSV 추가"), resolved.customLayers.length > 0 && h("div", { style: {
 		display: "grid",
 		gap: "4px",
 		marginTop: "4px"
@@ -124309,11 +125052,15 @@ function WhiteMapStudioView({ context }) {
 			layerId: layer.id
 		}),
 		style: btnStyle(false)
-	}, "삭제")))), h("hr", { style: {
-		border: "none",
-		borderTop: "1px solid var(--alid-border-subtle, #e4e4e7)",
-		margin: "4px 0"
-	} }), h("strong", { style: { fontSize: "11px" } }, "국가 / 행정구역 코드 강조"), h("div", { style: {
+	}, "삭제")))))), h("details", { style: boxStyle }, h("summary", { style: {
+		fontWeight: 600,
+		fontSize: "11.5px",
+		cursor: "pointer"
+	} }, `강조 그룹 (${resolved.highlights.length}) · 지시선 라벨 (${resolved.annotations.length})`), h("div", { style: {
+		display: "grid",
+		gap: "6px",
+		marginTop: "6px"
+	} }, h("div", { style: {
 		display: "grid",
 		gridTemplateColumns: "1fr 1fr",
 		gap: "4px"
@@ -124321,7 +125068,7 @@ function WhiteMapStudioView({ context }) {
 		value: hlLevel,
 		onChange: (e) => setHlLevel(e.target.value),
 		style: inputStyle
-	}, h("option", { value: "admin0" }, "국가 (ISO 숫자: 410, 156)"), h("option", { value: "admin1" }, "성·도 (CN-HL, CN-JL)")), h("input", {
+	}, h("option", { value: "admin0" }, "국가 (ISO 숫자)"), h("option", { value: "admin1" }, "성·도 (CN-HL…)")), h("input", {
 		value: hlLabel,
 		onChange: (e) => setHlLabel(e.target.value),
 		placeholder: "범례 이름",
@@ -124335,52 +125082,45 @@ function WhiteMapStudioView({ context }) {
 		type: "button",
 		onClick: handleAddHighlightGroup,
 		style: btnStyle(false)
-	}, "강조 그룹 추가"), h("hr", { style: {
-		border: "none",
-		borderTop: "1px solid var(--alid-border-subtle, #e4e4e7)",
-		margin: "4px 0"
-	} }), h("strong", { style: { fontSize: "11px" } }, "지시선 라벨 추가"), h("div", { style: {
-		display: "grid",
-		gridTemplateColumns: "2fr 1fr 1fr",
-		gap: "4px"
-	} }, h("input", {
-		value: annText,
-		onChange: (e) => setAnnText(e.target.value),
-		placeholder: "지명",
-		style: inputStyle
-	}), h("input", {
-		value: annLon,
-		onChange: (e) => setAnnLon(e.target.value),
-		placeholder: "경도",
-		style: inputStyle
-	}), h("input", {
-		value: annLat,
-		onChange: (e) => setAnnLat(e.target.value),
-		placeholder: "위도",
-		style: inputStyle
-	})), h("button", {
+	}, "코드 강조 그룹 추가"), ...resolved.highlights.map((hl, idx) => h("div", {
+		key: `hl-${idx}`,
+		style: {
+			display: "flex",
+			justifyContent: "space-between",
+			alignItems: "center",
+			fontSize: "11px"
+		}
+	}, h("span", null, `${hl.legendLabel || hl.level}: ${hl.codes.join(", ")}`), h("button", {
 		type: "button",
-		onClick: handleAddAnnotation,
+		onClick: () => void exec("remove-highlight", {
+			entityId: selected.id,
+			index: idx
+		}),
 		style: btnStyle(false)
-	}, "지시선 라벨 추가"))), h("details", { style: boxStyle }, h("summary", { style: {
+	}, "삭제"))), ...resolved.annotations.map((ann) => h("div", {
+		key: ann.id,
+		style: {
+			display: "flex",
+			justifyContent: "space-between",
+			alignItems: "center",
+			fontSize: "11px"
+		}
+	}, h("span", null, `라벨: ${ann.text}`), h("button", {
+		type: "button",
+		onClick: () => void exec("remove-annotation", {
+			entityId: selected.id,
+			annotationId: ann.id
+		}),
+		style: btnStyle(false)
+	}, "삭제"))))), h("details", { style: boxStyle }, h("summary", { style: {
 		fontWeight: 600,
 		fontSize: "11.5px",
 		cursor: "pointer"
-	} }, "수능 인쇄 스타일 · 사용자 CSS"), h("div", { style: {
+	} }, "고급 사용자 CSS (--map-*)"), h("div", { style: {
 		display: "grid",
 		gap: "6px",
 		marginTop: "6px"
-	} }, h("select", {
-		value: resolved.stylePreset,
-		onChange: (e) => void exec("update-style", {
-			entityId: selected.id,
-			stylePreset: e.target.value
-		}),
-		style: inputStyle
-	}, ...MAP_PRINT_PRESETS.map((p) => h("option", {
-		key: p.id,
-		value: p.id
-	}, p.name))), h("small", { style: { color: "var(--alid-text-muted, #71717a)" } }, resolved.style.preset.note), h("textarea", {
+	} }, h("textarea", {
 		rows: 5,
 		maxLength: 2048,
 		value: cssDraft,
@@ -124392,7 +125132,7 @@ function WhiteMapStudioView({ context }) {
 			fontFamily: "ui-monospace, Menlo, monospace",
 			fontSize: "10.5px"
 		}
-	}), h("small", { style: { color: "var(--alid-text-muted, #71717a)" } }, "--map-ocean / land / ink / coast / border / admin1 / river / highlight (#rrggbb) · --map-*-width (0.3~4px) · --map-border-dash / admin1-dash (none 또는 5 3) · --map-font (serif|sans-serif)"), cssCheck.error && h("small", {
+	}), cssCheck.error && h("small", {
 		role: "alert",
 		style: { color: "#dc2626" }
 	}, cssCheck.error), h("div", { style: {
@@ -124425,7 +125165,7 @@ function WhiteMapStudioView({ context }) {
 function createStudioPanelSpec() {
 	return {
 		panelId: STUDIO_PANEL_ID,
-		title: "수능 백지도 스튜디오",
+		title: "수능 백지도",
 		icon: { paths: [
 			"M3 5l5-2 6 2 5-2v12l-5 2-6-2-5 2V5z",
 			"M8 3v12",
@@ -124441,7 +125181,7 @@ function createStudioPanelSpec() {
 			if (!hostEl) return () => {};
 			const doc = hostEl.ownerDocument;
 			if (!doc || typeof doc.createElement !== "function") {
-				hostEl.textContent = "수능 백지도 스튜디오";
+				hostEl.textContent = "수능 백지도";
 				return () => {
 					hostEl.textContent = "";
 				};
@@ -124476,7 +125216,7 @@ function planWhiteMapChanges(world, actions = []) {
 			const patchIn = isRecord(act.patch) ? act.patch : {};
 			const base = patchIn.thematicId ? createMapPropsFromThematicPreset(patchIn.thematicId) : createMapPropsForRegion(patchIn.regionPreset || "east-asia-oceania", patchIn.stylePreset || "admin0-highlight");
 			if (patchIn.customCss !== void 0 && parseMapCss(patchIn.customCss).error) throw new Error(`actions[${i}] customCss 오류: ${parseMapCss(patchIn.customCss).error}`);
-			const mapProps = {
+			const mapProps = syncFlatFields({
 				...base,
 				...typeof patchIn.title === "string" ? { title: patchIn.title } : {},
 				...patchIn.projection ? { projection: patchIn.projection } : {},
@@ -124501,7 +125241,7 @@ function planWhiteMapChanges(world, actions = []) {
 					...base.legend,
 					...patchIn.legend
 				} } : {}
-			};
+			});
 			const x = Number.isFinite(act.x) ? act.x : 80 + i * 32;
 			const y = Number.isFinite(act.y) ? act.y : 80 + i * 32;
 			const width = Number.isFinite(act.width) && act.width > 0 ? Math.round(act.width) : 480;
@@ -124535,7 +125275,7 @@ function planWhiteMapChanges(world, actions = []) {
 			if (!current) throw new Error(`수정할 백지도를 찾지 못했습니다: ${id}`);
 			const patchIn = isRecord(act.patch) ? act.patch : {};
 			if (patchIn.customCss !== void 0 && parseMapCss(patchIn.customCss).error) throw new Error(`actions[${i}] customCss 오류: ${parseMapCss(patchIn.customCss).error}`);
-			const next = {
+			const next = syncFlatFields({
 				...patchIn,
 				...isRecord(patchIn.viewport) ? { viewport: {
 					...current.viewport ?? {},
@@ -124553,7 +125293,7 @@ function planWhiteMapChanges(world, actions = []) {
 					...current.legend ?? {},
 					...patchIn.legend
 				} } : {}
-			};
+			});
 			ops.push({
 				id,
 				aspect: MAP_ASPECT_ID,
@@ -124721,36 +125461,33 @@ var MAP_ICON = Object.freeze({ paths: Object.freeze([
 	"M8 3v12",
 	"M14 5v12"
 ]) });
-var QUICK_REGION_OPTIONS = Object.freeze([
-	{
-		label: "세계",
-		value: "world-pacific"
-	},
-	{
-		label: "동아시아",
-		value: "east-asia-oceania"
-	},
-	{
-		label: "동북3성",
-		value: "northeast-china"
-	},
-	{
-		label: "한반도",
-		value: "korea"
-	},
-	{
-		label: "유럽",
-		value: "europe"
-	},
-	{
-		label: "페마른",
-		value: "denmark-germany"
-	}
-]);
+var LABEL_ICON = Object.freeze({ paths: Object.freeze([
+	"M3 16l5-5h9",
+	"M11 4h6",
+	"M14 4v5"
+]) });
 var QUICK_PRESET_OPTIONS = Object.freeze(MAP_PRINT_PRESETS.map((p) => ({
 	label: p.name.split(" · ")[0],
 	value: p.id
 })));
+var CORNER_OPTIONS = Object.freeze([
+	{
+		label: "좌하",
+		value: "bl"
+	},
+	{
+		label: "우하",
+		value: "br"
+	},
+	{
+		label: "좌상",
+		value: "tl"
+	},
+	{
+		label: "우상",
+		value: "tr"
+	}
+]);
 var COMMAND_LABELS = Object.freeze({
 	"insert-map": "수능 백지도 추가",
 	"explore-map": "지도 프레임 탐색 (더블클릭)",
@@ -124763,6 +125500,10 @@ var COMMAND_LABELS = Object.freeze({
 	"add-custom-layer": "커스텀 GIS 레이어 추가",
 	"remove-custom-layer": "커스텀 GIS 레이어 삭제",
 	"add-annotation": "지시선 라벨 추가",
+	"remove-annotation": "지시선 라벨 삭제",
+	"remove-highlight": "강조 그룹 삭제",
+	"add-custom-point": "지점 마커 배치",
+	"start-tool": "지도 배치 도구 시작",
 	"bake-high-res": "10m 고해상도 CDN 스냅샷 베이크",
 	"clear-baked": "50m 오프라인 경계 복원",
 	"reset-viewport": "지도 시점 초기화"
@@ -124809,6 +125550,16 @@ var whiteMapAspect = Object.freeze({
 				requiresSelection: true
 			},
 			{
+				id: "white-map.annotate.selection",
+				kind: "action",
+				label: "지시선 라벨",
+				icon: LABEL_ICON,
+				commandSymbol: `${EXTENSION_ID}:start-tool`,
+				params: { mode: "annotation" },
+				placement: "selection-bar",
+				requiresSelection: true
+			},
+			{
 				id: "white-map.preset.selection",
 				kind: "segmented",
 				field: "stylePreset",
@@ -124834,22 +125585,364 @@ var whiteMapAspect = Object.freeze({
 				placement: "inspector"
 			},
 			{
-				id: "white-map.region.inspector",
+				id: "white-map.projection.inspector",
 				kind: "segmented",
-				field: "regionPreset",
-				label: "빠른 지역 전환",
+				field: "projection",
+				label: "투영법",
 				section: "백지도 기본",
 				placement: "inspector",
-				options: QUICK_REGION_OPTIONS
+				options: [
+					{
+						label: "메르카토르",
+						value: "mercator"
+					},
+					{
+						label: "내추럴어스",
+						value: "naturalEarth1"
+					},
+					{
+						label: "원뿔정적",
+						value: "conicEqualArea"
+					},
+					{
+						label: "정방형",
+						value: "equirectangular"
+					}
+				]
+			},
+			{
+				id: "white-map.explore.inspector",
+				kind: "action",
+				label: "프레임 탐색 (더블클릭)",
+				icon: MAP_ICON,
+				commandSymbol: `${EXTENSION_ID}:explore-map`,
+				section: "백지도 기본",
+				placement: "inspector",
+				requiresSelection: true
+			},
+			{
+				id: "white-map.centerLon.inspector",
+				kind: "number",
+				field: "centerLon",
+				label: "중심 경도 (°E)",
+				section: "시점 · 좌표",
+				placement: "inspector",
+				min: -180,
+				max: 180,
+				step: .5
+			},
+			{
+				id: "white-map.centerLat.inspector",
+				kind: "number",
+				field: "centerLat",
+				label: "중심 위도 (°N)",
+				section: "시점 · 좌표",
+				placement: "inspector",
+				min: -80,
+				max: 80,
+				step: .5
+			},
+			{
+				id: "white-map.scale.inspector",
+				kind: "number",
+				field: "scale",
+				label: "배율 (Scale)",
+				section: "시점 · 좌표",
+				placement: "inspector",
+				min: 30,
+				max: 4e4,
+				step: 20
+			},
+			{
+				id: "white-map.rotateLon.inspector",
+				kind: "number",
+				field: "rotateLon",
+				label: "경도 회전 (태평양 -150)",
+				section: "시점 · 좌표",
+				placement: "inspector",
+				min: -180,
+				max: 180,
+				step: 10
+			},
+			{
+				id: "white-map.bake.inspector",
+				kind: "action",
+				label: "10m 고해상도 CDN 베이크",
+				commandSymbol: `${EXTENSION_ID}:bake-high-res`,
+				section: "시점 · 좌표",
+				placement: "inspector",
+				requiresSelection: true
+			},
+			{
+				id: "white-map.clearBake.inspector",
+				kind: "action",
+				label: "50m 오프라인 경계 복원",
+				commandSymbol: `${EXTENSION_ID}:clear-baked`,
+				section: "시점 · 좌표",
+				placement: "inspector",
+				requiresSelection: true
+			},
+			{
+				id: "white-map.resetViewport.inspector",
+				kind: "action",
+				label: "시점 초기화",
+				commandSymbol: `${EXTENSION_ID}:reset-viewport`,
+				section: "시점 · 좌표",
+				placement: "inspector",
+				requiresSelection: true
+			},
+			{
+				id: "white-map.showCoastline.inspector",
+				kind: "toggle",
+				field: "showCoastline",
+				label: "해안선 (실선)",
+				section: "기본 레이어",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.showBorders.inspector",
+				kind: "toggle",
+				field: "showBorders",
+				label: "국경선 (파선)",
+				section: "기본 레이어",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.showAdmin1.inspector",
+				kind: "toggle",
+				field: "showAdmin1",
+				label: "성·도 경계 (점선)",
+				section: "기본 레이어",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.showRivers.inspector",
+				kind: "toggle",
+				field: "showRivers",
+				label: "하천",
+				section: "기본 레이어",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.showLakes.inspector",
+				kind: "toggle",
+				field: "showLakes",
+				label: "호수",
+				section: "기본 레이어",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.graticule.inspector",
+				kind: "segmented",
+				field: "graticule",
+				label: "적도 · 위경선",
+				section: "기본 레이어",
+				placement: "inspector",
+				options: [
+					{
+						label: "없음",
+						value: "none"
+					},
+					{
+						label: "좌 0°",
+						value: "equator-left"
+					},
+					{
+						label: "우 0°",
+						value: "equator-right"
+					},
+					{
+						label: "격자",
+						value: "grid"
+					}
+				]
+			},
+			{
+				id: "white-map.showLegend.inspector",
+				kind: "toggle",
+				field: "showLegend",
+				label: "범례 박스",
+				section: "범례 · 위치 소지도",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.legendCorner.inspector",
+				kind: "segmented",
+				field: "legendCorner",
+				label: "범례 위치",
+				section: "범례 · 위치 소지도",
+				placement: "inspector",
+				options: CORNER_OPTIONS
+			},
+			{
+				id: "white-map.showInset.inspector",
+				kind: "toggle",
+				field: "showInset",
+				label: "위치 소지도 인셋",
+				section: "범례 · 위치 소지도",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.insetRegion.inspector",
+				kind: "segmented",
+				field: "insetRegion",
+				label: "인셋 범위",
+				section: "범례 · 위치 소지도",
+				placement: "inspector",
+				options: [
+					{
+						label: "세계",
+						value: "world"
+					},
+					{
+						label: "유럽",
+						value: "europe"
+					},
+					{
+						label: "동아시아",
+						value: "east-asia"
+					}
+				]
+			},
+			{
+				id: "white-map.insetCorner.inspector",
+				kind: "segmented",
+				field: "insetCorner",
+				label: "인셋 위치",
+				section: "범례 · 위치 소지도",
+				placement: "inspector",
+				options: CORNER_OPTIONS
 			},
 			{
 				id: "white-map.preset.inspector",
 				kind: "segmented",
 				field: "stylePreset",
-				label: "수능 인쇄 스타일",
-				section: "인쇄 스타일",
+				label: "수능 인쇄 프리셋",
+				section: "인쇄 스타일 · 색상",
 				placement: "inspector",
 				options: QUICK_PRESET_OPTIONS
+			},
+			{
+				id: "white-map.oceanColor.inspector",
+				kind: "color",
+				field: "oceanColor",
+				label: "바다 색상",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.oceanSwatches.inspector",
+				kind: "segmented",
+				field: "oceanColor",
+				label: "바다 팔레트",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector",
+				options: [
+					{
+						label: "흰색",
+						value: "#ffffff",
+						swatch: "#ffffff"
+					},
+					{
+						label: "연회색",
+						value: "#eaeaea",
+						swatch: "#eaeaea"
+					},
+					{
+						label: "회색",
+						value: "#dcdcdc",
+						swatch: "#dcdcdc"
+					}
+				]
+			},
+			{
+				id: "white-map.landColor.inspector",
+				kind: "color",
+				field: "landColor",
+				label: "육지 색상",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.highlightColor.inspector",
+				kind: "color",
+				field: "highlightColor",
+				label: "강조 기본색",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.inkColor.inspector",
+				kind: "color",
+				field: "inkColor",
+				label: "먹선 · 글씨색",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector"
+			},
+			{
+				id: "white-map.coastWidth.inspector",
+				kind: "slider",
+				field: "coastWidth",
+				label: "해안선 굵기 (0=기본)",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector",
+				min: 0,
+				max: 2.5,
+				step: .1
+			},
+			{
+				id: "white-map.borderDash.inspector",
+				kind: "segmented",
+				field: "borderDash",
+				label: "국경 선종",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector",
+				options: [
+					{
+						label: "기본",
+						value: ""
+					},
+					{
+						label: "실선",
+						value: "none"
+					},
+					{
+						label: "파선",
+						value: "4 3"
+					},
+					{
+						label: "긴파선",
+						value: "6 3.5"
+					},
+					{
+						label: "점선",
+						value: "1.5 2"
+					}
+				]
+			},
+			{
+				id: "white-map.fontStyle.inspector",
+				kind: "segmented",
+				field: "fontStyle",
+				label: "서체",
+				section: "인쇄 스타일 · 색상",
+				placement: "inspector",
+				options: [{
+					label: "CMU·Pretendard",
+					value: "serif"
+				}, {
+					label: "Pretendard 고딕",
+					value: "sans-serif"
+				}]
+			},
+			{
+				id: "white-map.customCss.inspector",
+				kind: "text",
+				field: "customCss",
+				label: "커스텀 --map-* CSS",
+				section: "고급 CSS",
+				sectionCollapsed: true,
+				placement: "inspector"
 			}
 		],
 		panels: [createStudioPanelSpec()]
@@ -124910,11 +126003,11 @@ var plugin = {
 			const y = hasY ? args.y : 80 + count % 4 * 36;
 			const width = Number.isFinite(args.width) && args.width > 0 ? Math.round(args.width) : region.defaultSize?.width ?? 480;
 			const height = Number.isFinite(args.height) && args.height > 0 ? Math.round(args.height) : region.defaultSize?.height ?? 360;
-			const finalProps = {
+			const finalProps = syncFlatFields({
 				...mapProps,
 				...typeof args.title === "string" ? { title: args.title } : {},
 				...typeof args.customCss === "string" && !parseMapCss(args.customCss).error ? { customCss: args.customCss } : {}
-			};
+			});
 			const creation = context?.services?.get?.("canvas.creation");
 			if (creation && typeof creation.create === "function") return creation.create({
 				caller: `${EXTENSION_ID}:insert-map`,
@@ -124961,10 +126054,10 @@ var plugin = {
 				return {
 					id,
 					aspect: MAP_ASPECT_ID,
-					patch: { viewport: {
-						...context.world.getCanonical(id, MAP_ASPECT_ID)?.viewport ?? {},
+					patch: syncFlatFields({ viewport: {
+						...resolveMapSpec(context.world.getCanonical(id, MAP_ASPECT_ID)).viewport,
 						...viewport
-					} }
+					} })
 				};
 			});
 			withHistoryGroup(context, () => {
@@ -124980,12 +126073,12 @@ var plugin = {
 			const ops = targetIds.map((id) => ({
 				id,
 				aspect: MAP_ASPECT_ID,
-				patch: {
+				patch: syncFlatFields({
 					regionPreset: region.id,
 					projection: region.projection,
 					viewport: { ...region.viewport },
 					bakedDetail: null
-				}
+				})
 			}));
 			withHistoryGroup(context, () => {
 				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:set-region`, ops);
@@ -125016,28 +126109,44 @@ var plugin = {
 			for (const id of targetIds) {
 				const current = context.world.getCanonical(id, MAP_ASPECT_ID);
 				if (!current) continue;
+				const resolved = resolveMapSpec(current);
 				const patch = {};
 				if (typeof args.title === "string") patch.title = args.title;
 				if (typeof args.stylePreset === "string" && MAP_PRINT_PRESETS.some((p) => p.id === args.stylePreset)) patch.stylePreset = args.stylePreset;
 				if ("customCss" in args) patch.customCss = args.customCss;
 				if (typeof args.projection === "string") patch.projection = args.projection;
 				if (args.baseLayers && typeof args.baseLayers === "object") patch.baseLayers = {
-					...current.baseLayers ?? {},
+					...resolved.baseLayers,
 					...args.baseLayers
 				};
 				if (Array.isArray(args.highlights)) patch.highlights = args.highlights;
 				if (args.inset && typeof args.inset === "object") patch.inset = {
-					...current.inset ?? {},
+					...resolved.inset,
 					...args.inset
 				};
 				if (args.legend && typeof args.legend === "object") patch.legend = {
-					...current.legend ?? {},
+					...resolved.legend,
 					...args.legend
 				};
-				if (Object.keys(patch).length) ops.push({
+				if (typeof args.showLegend === "boolean") {
+					patch.showLegend = args.showLegend;
+					patch.legend = {
+						...patch.legend ?? resolved.legend,
+						enabled: args.showLegend
+					};
+				}
+				if (typeof args.showInset === "boolean") {
+					patch.showInset = args.showInset;
+					patch.inset = {
+						...patch.inset ?? resolved.inset,
+						enabled: args.showInset
+					};
+				}
+				const synced = syncFlatFields(patch);
+				if (Object.keys(synced).length) ops.push({
 					id,
 					aspect: MAP_ASPECT_ID,
-					patch
+					patch: synced
 				});
 			}
 			if (ops.length) withHistoryGroup(context, () => {
@@ -125054,13 +126163,14 @@ var plugin = {
 				const current = context.world.getCanonical(id, MAP_ASPECT_ID);
 				if (!current) continue;
 				const resolved = resolveMapSpec(current);
+				const nextLayers = {
+					...resolved.baseLayers,
+					[args.layer]: !resolved.baseLayers[args.layer]
+				};
 				ops.push({
 					id,
 					aspect: MAP_ASPECT_ID,
-					patch: { baseLayers: {
-						...resolved.baseLayers,
-						[args.layer]: !resolved.baseLayers[args.layer]
-					} }
+					patch: syncFlatFields({ baseLayers: nextLayers })
 				});
 			}
 			if (ops.length) withHistoryGroup(context, () => {
@@ -125101,26 +126211,90 @@ var plugin = {
 			});
 			return targetIds;
 		};
+		const removeHighlight = (rawArgs = {}) => {
+			const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+			const targetIds = getSelectedMapIds(context, args.entityId);
+			if (!targetIds.length || !Number.isInteger(args.index)) return null;
+			const ops = targetIds.map((id) => {
+				const list = [...context.world.getCanonical(id, MAP_ASPECT_ID)?.highlights ?? []];
+				list.splice(args.index, 1);
+				return {
+					id,
+					aspect: MAP_ASPECT_ID,
+					patch: { highlights: list }
+				};
+			});
+			withHistoryGroup(context, () => {
+				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:remove-highlight`, ops);
+			});
+			return targetIds;
+		};
 		const addCustomLayer = (rawArgs = {}) => {
 			const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
 			const targetIds = getSelectedMapIds(context, args.entityId);
 			if (!targetIds.length || !args.layer) return null;
 			const ops = targetIds.map((id) => {
 				const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+				const resolved = resolveMapSpec(current);
 				return {
 					id,
 					aspect: MAP_ASPECT_ID,
-					patch: {
+					patch: syncFlatFields({
 						customLayers: [...current?.customLayers ?? [], args.layer],
 						legend: {
-							...current?.legend ?? {},
+							...resolved.legend,
 							enabled: true
 						}
-					}
+					})
 				};
 			});
 			withHistoryGroup(context, () => {
 				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-custom-layer`, ops);
+			});
+			return targetIds;
+		};
+		const addCustomPoint = (entityId, lon, lat, marker = "bullseye") => {
+			const targetIds = getSelectedMapIds(context, entityId);
+			if (!targetIds.length || !Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+			const layerId = `user-points-${marker}`;
+			const ops = targetIds.map((id) => {
+				const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+				const layers = structuredClone(current?.customLayers ?? []);
+				const feat = {
+					type: "Feature",
+					properties: { name: "" },
+					geometry: {
+						type: "Point",
+						coordinates: [lon, lat]
+					}
+				};
+				const existing = layers.find((l) => l.id === layerId);
+				if (existing?.geojson?.features) existing.geojson.features.push(feat);
+				else layers.push({
+					id: layerId,
+					name: "지점 마커",
+					kind: "point",
+					visible: true,
+					showInLegend: false,
+					style: {
+						stroke: "#171717",
+						fill: "#ffffff",
+						strokeWidth: marker === "ring" ? 2.6 : 1.4,
+						marker
+					},
+					geojson: {
+						type: "FeatureCollection",
+						features: [feat]
+					}
+				});
+				return {
+					id,
+					aspect: MAP_ASPECT_ID,
+					patch: { customLayers: layers }
+				};
+			});
+			withHistoryGroup(context, () => {
+				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-custom-point`, ops);
 			});
 			return targetIds;
 		};
@@ -125153,6 +126327,22 @@ var plugin = {
 			});
 			withHistoryGroup(context, () => {
 				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-annotation`, ops);
+			});
+			return targetIds;
+		};
+		const removeAnnotation = (rawArgs = {}) => {
+			const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+			const targetIds = getSelectedMapIds(context, args.entityId);
+			if (!targetIds.length || !args.annotationId) return null;
+			const ops = targetIds.map((id) => {
+				return {
+					id,
+					aspect: MAP_ASPECT_ID,
+					patch: { annotations: (context.world.getCanonical(id, MAP_ASPECT_ID)?.annotations ?? []).filter((a) => a.id !== args.annotationId) }
+				};
+			});
+			withHistoryGroup(context, () => {
+				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:remove-annotation`, ops);
 			});
 			return targetIds;
 		};
@@ -125213,10 +126403,10 @@ var plugin = {
 				return {
 					id,
 					aspect: MAP_ASPECT_ID,
-					patch: {
+					patch: syncFlatFields({
 						viewport: { ...getRegionPreset(context.world.getCanonical(id, MAP_ASPECT_ID)?.regionPreset).viewport },
 						bakedDetail: null
-					}
+					})
 				};
 			});
 			withHistoryGroup(context, () => {
@@ -125268,11 +126458,59 @@ var plugin = {
 				});
 			}
 		};
+		let menubar = null;
 		const explorer = mountMapExplorer(context, {
+			useExternalHud: true,
 			commitViewport: (id, vp) => updateViewport(id, vp),
 			toggleHighlight: (id, level, code) => toggleHighlight(id, level, code),
-			bakeHighRes: (id) => bakeHighRes({ entityId: id })
+			bakeHighRes: (id) => bakeHighRes({ entityId: id }),
+			onExploreChange: () => menubar?.refresh?.()
 		});
+		menubar = mountMapMenubar(context, {
+			enterExplore: (id) => explorer.enter(id),
+			exitExplore: (commit) => explorer.exit(commit),
+			getExploringId: () => explorer.getActiveId(),
+			getExploringViewport: () => explorer.getActiveViewport(),
+			bakeFromExplore: async (id) => {
+				const vp = explorer.getActiveViewport();
+				if (vp) updateViewport(id, vp);
+				return bakeHighRes({ entityId: id });
+			},
+			addAnnotation: (entityId, annotation) => addAnnotation({
+				entityId,
+				annotation
+			}),
+			addCustomPoint: (entityId, lon, lat, marker) => addCustomPoint(entityId, lon, lat, marker),
+			addCustomLayer: (entityId, layer) => addCustomLayer({
+				entityId,
+				layer
+			}),
+			toggleHighlight: (entityId, level, code) => toggleHighlight(entityId, level, code),
+			toggleLayer: (entityId, layer) => toggleLayer({
+				entityId,
+				layer
+			}),
+			toggleLegend: (entityId) => {
+				const cur = context.world.getCanonical(entityId, MAP_ASPECT_ID);
+				if (!cur) return;
+				const resolved = resolveMapSpec(cur);
+				updateStyle({
+					entityId,
+					showLegend: !resolved.legend.enabled
+				});
+			},
+			toggleInset: (entityId) => {
+				const cur = context.world.getCanonical(entityId, MAP_ASPECT_ID);
+				if (!cur) return;
+				const resolved = resolveMapSpec(cur);
+				updateStyle({
+					entityId,
+					showInset: !resolved.inset.enabled
+				});
+			},
+			bakeHighRes: (entityId) => bakeHighRes({ entityId })
+		});
+		disposers.push(() => menubar.dispose());
 		disposers.push(() => explorer.dispose());
 		disposers.push(mountMapGizmos(context, { commitDragOffset }));
 		const runCommand = (name, rawArgs = {}) => {
@@ -125281,6 +126519,7 @@ var plugin = {
 				case "insert-map": return insertMap(args);
 				case "explore-map": {
 					const targetId = getSelectedMapIds(context, args.entityId)[0];
+					menubar.clearTool();
 					return targetId ? explorer.enter(targetId) : false;
 				}
 				case "set-region": return setRegion(args);
@@ -125289,9 +126528,21 @@ var plugin = {
 				case "update-viewport": return updateViewport(args.entityId, args.viewport);
 				case "toggle-layer": return toggleLayer(args);
 				case "toggle-highlight": return toggleHighlight(args.entityId, args.level, args.code);
+				case "remove-highlight": return removeHighlight(args);
 				case "add-custom-layer": return addCustomLayer(args);
+				case "add-custom-point": return addCustomPoint(args.entityId, args.lon, args.lat, args.marker);
 				case "remove-custom-layer": return removeCustomLayer(args);
 				case "add-annotation": return addAnnotation(args);
+				case "remove-annotation": return removeAnnotation(args);
+				case "start-tool": {
+					const targetId = getSelectedMapIds(context, args.entityId)[0];
+					if (targetId && args.mode) {
+						explorer.exit(true);
+						menubar.startTool(targetId, args.mode);
+						return true;
+					}
+					return false;
+				}
 				case "bake-high-res": return bakeHighRes(args);
 				case "clear-baked": return clearBaked(args);
 				case "reset-viewport": return resetViewport(args);
@@ -125326,13 +126577,17 @@ var plugin = {
 				updateViewport,
 				toggleLayer,
 				toggleHighlight,
+				removeHighlight,
 				addCustomLayer,
+				addCustomPoint,
 				removeCustomLayer,
 				addAnnotation,
+				removeAnnotation,
 				bakeHighRes,
 				clearBaked,
 				resetViewport,
-				explorer
+				explorer,
+				menubar
 			}),
 			dispose() {
 				for (const d of disposers.splice(0).reverse()) try {
@@ -125342,4 +126597,4 @@ var plugin = {
 		};
 	}
 };
-export { COMMAND_NAMES, EXTENSION_ID, MAP_ASPECT_ID, MAP_DEFAULTS, MAP_PRINT_PRESETS, REGION_PRESETS, STUDIO_PANEL_ID, THEMATIC_PRESETS, bakeHighResSnapshot, createMapPropsForRegion, createMapPropsFromThematicPreset, createPackageManifest, plugin as default, deriveMapGeometry, getOfflineBaseGis, mountMapExplorer, mountMapGizmos, parseCustomGisInput, parseMapCss, planWhiteMapChanges, registerWhiteMapTools, renderMapDom, renderMapSvg, resolveMapSpec, resolveMapStyle, settingsSchema, whiteMapAspect };
+export { COMMAND_NAMES, EXTENSION_ID, MAP_ASPECT_ID, MAP_DEFAULTS, MAP_PRINT_PRESETS, REGION_PRESETS, STUDIO_PANEL_ID, THEMATIC_PRESETS, bakeHighResSnapshot, createMapPropsForRegion, createMapPropsFromThematicPreset, createPackageManifest, plugin as default, deriveMapGeometry, getOfflineBaseGis, mountMapExplorer, mountMapGizmos, mountMapMenubar, parseCustomGisInput, parseMapCss, planWhiteMapChanges, registerWhiteMapTools, renderMapDom, renderMapSvg, resolveMapSpec, resolveMapStyle, settingsSchema, syncFlatFields, whiteMapAspect };

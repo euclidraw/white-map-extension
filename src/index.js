@@ -15,6 +15,7 @@ import {
 } from './manifest.js';
 import { mountMapExplorer } from './map-explorer.js';
 import { mountMapGizmos } from './map-gizmo.js';
+import { mountMapMenubar } from './map-menubar.js';
 import {
   DEFAULT_MAP_HEIGHT,
   DEFAULT_MAP_WIDTH,
@@ -25,6 +26,7 @@ import {
   normalizeOffset,
   parseCustomGisInput,
   resolveMapSpec,
+  syncFlatFields,
 } from './model.js';
 import { createStudioPanelSpec } from './panel.js';
 import { MAP_PRINT_PRESETS, parseMapCss, resolveMapStyle } from './print-style.js';
@@ -39,18 +41,24 @@ const MAP_ICON = Object.freeze({
   ]),
 });
 
-const QUICK_REGION_OPTIONS = Object.freeze([
-  { label: '세계', value: 'world-pacific' },
-  { label: '동아시아', value: 'east-asia-oceania' },
-  { label: '동북3성', value: 'northeast-china' },
-  { label: '한반도', value: 'korea' },
-  { label: '유럽', value: 'europe' },
-  { label: '페마른', value: 'denmark-germany' },
-]);
+const LABEL_ICON = Object.freeze({
+  paths: Object.freeze([
+    'M3 16l5-5h9',
+    'M11 4h6',
+    'M14 4v5',
+  ]),
+});
 
 const QUICK_PRESET_OPTIONS = Object.freeze(
   MAP_PRINT_PRESETS.map(p => ({ label: p.name.split(' · ')[0], value: p.id })),
 );
+
+const CORNER_OPTIONS = Object.freeze([
+  { label: '좌하', value: 'bl' },
+  { label: '우하', value: 'br' },
+  { label: '좌상', value: 'tl' },
+  { label: '우상', value: 'tr' },
+]);
 
 const COMMAND_LABELS = Object.freeze({
   'insert-map': '수능 백지도 추가',
@@ -64,6 +72,10 @@ const COMMAND_LABELS = Object.freeze({
   'add-custom-layer': '커스텀 GIS 레이어 추가',
   'remove-custom-layer': '커스텀 GIS 레이어 삭제',
   'add-annotation': '지시선 라벨 추가',
+  'remove-annotation': '지시선 라벨 삭제',
+  'remove-highlight': '강조 그룹 삭제',
+  'add-custom-point': '지점 마커 배치',
+  'start-tool': '지도 배치 도구 시작',
   'bake-high-res': '10m 고해상도 CDN 스냅샷 베이크',
   'clear-baked': '50m 오프라인 경계 복원',
   'reset-viewport': '지도 시점 초기화',
@@ -84,6 +96,7 @@ const whiteMapAspect = Object.freeze({
   svgDefs: cmuSvgDefs,
   ui: {
     controls: [
+      // Tool shelf
       {
         id: 'white-map.insert.shelf',
         kind: 'action',
@@ -93,12 +106,23 @@ const whiteMapAspect = Object.freeze({
         placement: 'tool-shelf',
         requiresSelection: false,
       },
+      // Selection bar quick controls
       {
         id: 'white-map.explore.selection',
         kind: 'action',
         label: '지도 탐색',
         icon: MAP_ICON,
         commandSymbol: `${EXTENSION_ID}:explore-map`,
+        placement: 'selection-bar',
+        requiresSelection: true,
+      },
+      {
+        id: 'white-map.annotate.selection',
+        kind: 'action',
+        label: '지시선 라벨',
+        icon: LABEL_ICON,
+        commandSymbol: `${EXTENSION_ID}:start-tool`,
+        params: { mode: 'annotation' },
         placement: 'selection-bar',
         requiresSelection: true,
       },
@@ -119,6 +143,8 @@ const whiteMapAspect = Object.freeze({
         placement: 'selection-bar',
         requiresSelection: true,
       },
+
+      // Props (Inspector) Panel — Section 1: 백지도 기본
       {
         id: 'white-map.title.inspector',
         kind: 'text',
@@ -128,22 +154,309 @@ const whiteMapAspect = Object.freeze({
         placement: 'inspector',
       },
       {
-        id: 'white-map.region.inspector',
+        id: 'white-map.projection.inspector',
         kind: 'segmented',
-        field: 'regionPreset',
-        label: '빠른 지역 전환',
+        field: 'projection',
+        label: '투영법',
         section: '백지도 기본',
         placement: 'inspector',
-        options: QUICK_REGION_OPTIONS,
+        options: [
+          { label: '메르카토르', value: 'mercator' },
+          { label: '내추럴어스', value: 'naturalEarth1' },
+          { label: '원뿔정적', value: 'conicEqualArea' },
+          { label: '정방형', value: 'equirectangular' },
+        ],
       },
+      {
+        id: 'white-map.explore.inspector',
+        kind: 'action',
+        label: '프레임 탐색 (더블클릭)',
+        icon: MAP_ICON,
+        commandSymbol: `${EXTENSION_ID}:explore-map`,
+        section: '백지도 기본',
+        placement: 'inspector',
+        requiresSelection: true,
+      },
+
+      // Props (Inspector) Panel — Section 2: 시점 · 좌표
+      {
+        id: 'white-map.centerLon.inspector',
+        kind: 'number',
+        field: 'centerLon',
+        label: '중심 경도 (°E)',
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        min: -180,
+        max: 180,
+        step: 0.5,
+      },
+      {
+        id: 'white-map.centerLat.inspector',
+        kind: 'number',
+        field: 'centerLat',
+        label: '중심 위도 (°N)',
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        min: -80,
+        max: 80,
+        step: 0.5,
+      },
+      {
+        id: 'white-map.scale.inspector',
+        kind: 'number',
+        field: 'scale',
+        label: '배율 (Scale)',
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        min: 30,
+        max: 40000,
+        step: 20,
+      },
+      {
+        id: 'white-map.rotateLon.inspector',
+        kind: 'number',
+        field: 'rotateLon',
+        label: '경도 회전 (태평양 -150)',
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        min: -180,
+        max: 180,
+        step: 10,
+      },
+      {
+        id: 'white-map.bake.inspector',
+        kind: 'action',
+        label: '10m 고해상도 CDN 베이크',
+        commandSymbol: `${EXTENSION_ID}:bake-high-res`,
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        requiresSelection: true,
+      },
+      {
+        id: 'white-map.clearBake.inspector',
+        kind: 'action',
+        label: '50m 오프라인 경계 복원',
+        commandSymbol: `${EXTENSION_ID}:clear-baked`,
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        requiresSelection: true,
+      },
+      {
+        id: 'white-map.resetViewport.inspector',
+        kind: 'action',
+        label: '시점 초기화',
+        commandSymbol: `${EXTENSION_ID}:reset-viewport`,
+        section: '시점 · 좌표',
+        placement: 'inspector',
+        requiresSelection: true,
+      },
+
+      // Props (Inspector) Panel — Section 3: 기본 레이어
+      {
+        id: 'white-map.showCoastline.inspector',
+        kind: 'toggle',
+        field: 'showCoastline',
+        label: '해안선 (실선)',
+        section: '기본 레이어',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.showBorders.inspector',
+        kind: 'toggle',
+        field: 'showBorders',
+        label: '국경선 (파선)',
+        section: '기본 레이어',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.showAdmin1.inspector',
+        kind: 'toggle',
+        field: 'showAdmin1',
+        label: '성·도 경계 (점선)',
+        section: '기본 레이어',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.showRivers.inspector',
+        kind: 'toggle',
+        field: 'showRivers',
+        label: '하천',
+        section: '기본 레이어',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.showLakes.inspector',
+        kind: 'toggle',
+        field: 'showLakes',
+        label: '호수',
+        section: '기본 레이어',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.graticule.inspector',
+        kind: 'segmented',
+        field: 'graticule',
+        label: '적도 · 위경선',
+        section: '기본 레이어',
+        placement: 'inspector',
+        options: [
+          { label: '없음', value: 'none' },
+          { label: '좌 0°', value: 'equator-left' },
+          { label: '우 0°', value: 'equator-right' },
+          { label: '격자', value: 'grid' },
+        ],
+      },
+
+      // Props (Inspector) Panel — Section 4: 범례 · 위치 소지도
+      {
+        id: 'white-map.showLegend.inspector',
+        kind: 'toggle',
+        field: 'showLegend',
+        label: '범례 박스',
+        section: '범례 · 위치 소지도',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.legendCorner.inspector',
+        kind: 'segmented',
+        field: 'legendCorner',
+        label: '범례 위치',
+        section: '범례 · 위치 소지도',
+        placement: 'inspector',
+        options: CORNER_OPTIONS,
+      },
+      {
+        id: 'white-map.showInset.inspector',
+        kind: 'toggle',
+        field: 'showInset',
+        label: '위치 소지도 인셋',
+        section: '범례 · 위치 소지도',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.insetRegion.inspector',
+        kind: 'segmented',
+        field: 'insetRegion',
+        label: '인셋 범위',
+        section: '범례 · 위치 소지도',
+        placement: 'inspector',
+        options: [
+          { label: '세계', value: 'world' },
+          { label: '유럽', value: 'europe' },
+          { label: '동아시아', value: 'east-asia' },
+        ],
+      },
+      {
+        id: 'white-map.insetCorner.inspector',
+        kind: 'segmented',
+        field: 'insetCorner',
+        label: '인셋 위치',
+        section: '범례 · 위치 소지도',
+        placement: 'inspector',
+        options: CORNER_OPTIONS,
+      },
+
+      // Props (Inspector) Panel — Section 5: 수능 인쇄 스타일 · 색상
       {
         id: 'white-map.preset.inspector',
         kind: 'segmented',
         field: 'stylePreset',
-        label: '수능 인쇄 스타일',
-        section: '인쇄 스타일',
+        label: '수능 인쇄 프리셋',
+        section: '인쇄 스타일 · 색상',
         placement: 'inspector',
         options: QUICK_PRESET_OPTIONS,
+      },
+      {
+        id: 'white-map.oceanColor.inspector',
+        kind: 'color',
+        field: 'oceanColor',
+        label: '바다 색상',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.oceanSwatches.inspector',
+        kind: 'segmented',
+        field: 'oceanColor',
+        label: '바다 팔레트',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+        options: [
+          { label: '흰색', value: '#ffffff', swatch: '#ffffff' },
+          { label: '연회색', value: '#eaeaea', swatch: '#eaeaea' },
+          { label: '회색', value: '#dcdcdc', swatch: '#dcdcdc' },
+        ],
+      },
+      {
+        id: 'white-map.landColor.inspector',
+        kind: 'color',
+        field: 'landColor',
+        label: '육지 색상',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.highlightColor.inspector',
+        kind: 'color',
+        field: 'highlightColor',
+        label: '강조 기본색',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.inkColor.inspector',
+        kind: 'color',
+        field: 'inkColor',
+        label: '먹선 · 글씨색',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+      },
+      {
+        id: 'white-map.coastWidth.inspector',
+        kind: 'slider',
+        field: 'coastWidth',
+        label: '해안선 굵기 (0=기본)',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+        min: 0,
+        max: 2.5,
+        step: 0.1,
+      },
+      {
+        id: 'white-map.borderDash.inspector',
+        kind: 'segmented',
+        field: 'borderDash',
+        label: '국경 선종',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+        options: [
+          { label: '기본', value: '' },
+          { label: '실선', value: 'none' },
+          { label: '파선', value: '4 3' },
+          { label: '긴파선', value: '6 3.5' },
+          { label: '점선', value: '1.5 2' },
+        ],
+      },
+      {
+        id: 'white-map.fontStyle.inspector',
+        kind: 'segmented',
+        field: 'fontStyle',
+        label: '서체',
+        section: '인쇄 스타일 · 색상',
+        placement: 'inspector',
+        options: [
+          { label: 'CMU·Pretendard', value: 'serif' },
+          { label: 'Pretendard 고딕', value: 'sans-serif' },
+        ],
+      },
+      {
+        id: 'white-map.customCss.inspector',
+        kind: 'text',
+        field: 'customCss',
+        label: '커스텀 --map-* CSS',
+        section: '고급 CSS',
+        sectionCollapsed: true,
+        placement: 'inspector',
       },
     ],
     panels: [createStudioPanelSpec()],
@@ -220,11 +533,11 @@ const plugin = {
       const width = Number.isFinite(args.width) && args.width > 0 ? Math.round(args.width) : (region.defaultSize?.width ?? DEFAULT_MAP_WIDTH);
       const height = Number.isFinite(args.height) && args.height > 0 ? Math.round(args.height) : (region.defaultSize?.height ?? DEFAULT_MAP_HEIGHT);
 
-      const finalProps = {
+      const finalProps = syncFlatFields({
         ...mapProps,
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
         ...(typeof args.customCss === 'string' && !parseMapCss(args.customCss).error ? { customCss: args.customCss } : {}),
-      };
+      });
 
       const creation = context?.services?.get?.('canvas.creation');
       if (creation && typeof creation.create === 'function') {
@@ -255,7 +568,13 @@ const plugin = {
       if (!targetIds.length || !viewport) return null;
       const ops = targetIds.map(id => {
         const current = context.world.getCanonical(id, MAP_ASPECT_ID);
-        return { id, aspect: MAP_ASPECT_ID, patch: { viewport: { ...(current?.viewport ?? {}), ...viewport } } };
+        const resolved = resolveMapSpec(current);
+        const nextVp = { ...resolved.viewport, ...viewport };
+        return {
+          id,
+          aspect: MAP_ASPECT_ID,
+          patch: syncFlatFields({ viewport: nextVp }),
+        };
       });
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:update-viewport`, ops);
@@ -271,12 +590,12 @@ const plugin = {
       const ops = targetIds.map(id => ({
         id,
         aspect: MAP_ASPECT_ID,
-        patch: {
+        patch: syncFlatFields({
           regionPreset: region.id,
           projection: region.projection,
           viewport: { ...region.viewport },
           bakedDetail: null,
-        },
+        }),
       }));
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:set-region`, ops);
@@ -306,6 +625,7 @@ const plugin = {
       for (const id of targetIds) {
         const current = context.world.getCanonical(id, MAP_ASPECT_ID);
         if (!current) continue;
+        const resolved = resolveMapSpec(current);
         const patch = {};
         if (typeof args.title === 'string') patch.title = args.title;
         if (typeof args.stylePreset === 'string' && MAP_PRINT_PRESETS.some(p => p.id === args.stylePreset)) {
@@ -313,11 +633,26 @@ const plugin = {
         }
         if ('customCss' in args) patch.customCss = args.customCss;
         if (typeof args.projection === 'string') patch.projection = args.projection;
-        if (args.baseLayers && typeof args.baseLayers === 'object') patch.baseLayers = { ...(current.baseLayers ?? {}), ...args.baseLayers };
+        if (args.baseLayers && typeof args.baseLayers === 'object') {
+          patch.baseLayers = { ...resolved.baseLayers, ...args.baseLayers };
+        }
         if (Array.isArray(args.highlights)) patch.highlights = args.highlights;
-        if (args.inset && typeof args.inset === 'object') patch.inset = { ...(current.inset ?? {}), ...args.inset };
-        if (args.legend && typeof args.legend === 'object') patch.legend = { ...(current.legend ?? {}), ...args.legend };
-        if (Object.keys(patch).length) ops.push({ id, aspect: MAP_ASPECT_ID, patch });
+        if (args.inset && typeof args.inset === 'object') {
+          patch.inset = { ...resolved.inset, ...args.inset };
+        }
+        if (args.legend && typeof args.legend === 'object') {
+          patch.legend = { ...resolved.legend, ...args.legend };
+        }
+        if (typeof args.showLegend === 'boolean') {
+          patch.showLegend = args.showLegend;
+          patch.legend = { ...(patch.legend ?? resolved.legend), enabled: args.showLegend };
+        }
+        if (typeof args.showInset === 'boolean') {
+          patch.showInset = args.showInset;
+          patch.inset = { ...(patch.inset ?? resolved.inset), enabled: args.showInset };
+        }
+        const synced = syncFlatFields(patch);
+        if (Object.keys(synced).length) ops.push({ id, aspect: MAP_ASPECT_ID, patch: synced });
       }
       if (ops.length) {
         withHistoryGroup(context, () => {
@@ -336,11 +671,8 @@ const plugin = {
         const current = context.world.getCanonical(id, MAP_ASPECT_ID);
         if (!current) continue;
         const resolved = resolveMapSpec(current);
-        ops.push({
-          id,
-          aspect: MAP_ASPECT_ID,
-          patch: { baseLayers: { ...resolved.baseLayers, [args.layer]: !resolved.baseLayers[args.layer] } },
-        });
+        const nextLayers = { ...resolved.baseLayers, [args.layer]: !resolved.baseLayers[args.layer] };
+        ops.push({ id, aspect: MAP_ASPECT_ID, patch: syncFlatFields({ baseLayers: nextLayers }) });
       }
       if (ops.length) {
         withHistoryGroup(context, () => {
@@ -380,23 +712,70 @@ const plugin = {
       return targetIds;
     };
 
+    const removeHighlight = (rawArgs = {}) => {
+      const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
+      const targetIds = getSelectedMapIds(context, args.entityId);
+      if (!targetIds.length || !Number.isInteger(args.index)) return null;
+      const ops = targetIds.map(id => {
+        const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+        const list = [...(current?.highlights ?? [])];
+        list.splice(args.index, 1);
+        return { id, aspect: MAP_ASPECT_ID, patch: { highlights: list } };
+      });
+      withHistoryGroup(context, () => {
+        context.world.applyCanonicalTransaction(`${EXTENSION_ID}:remove-highlight`, ops);
+      });
+      return targetIds;
+    };
+
     const addCustomLayer = (rawArgs = {}) => {
       const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
       const targetIds = getSelectedMapIds(context, args.entityId);
       if (!targetIds.length || !args.layer) return null;
       const ops = targetIds.map(id => {
         const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+        const resolved = resolveMapSpec(current);
         return {
           id,
           aspect: MAP_ASPECT_ID,
-          patch: {
+          patch: syncFlatFields({
             customLayers: [...(current?.customLayers ?? []), args.layer],
-            legend: { ...(current?.legend ?? {}), enabled: true },
-          },
+            legend: { ...resolved.legend, enabled: true },
+          }),
         };
       });
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-custom-layer`, ops);
+      });
+      return targetIds;
+    };
+
+    const addCustomPoint = (entityId, lon, lat, marker = 'bullseye') => {
+      const targetIds = getSelectedMapIds(context, entityId);
+      if (!targetIds.length || !Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+      const layerId = `user-points-${marker}`;
+      const ops = targetIds.map(id => {
+        const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+        const layers = structuredClone(current?.customLayers ?? []);
+        const feat = { type: 'Feature', properties: { name: '' }, geometry: { type: 'Point', coordinates: [lon, lat] } };
+        const existing = layers.find(l => l.id === layerId);
+        if (existing?.geojson?.features) {
+          existing.geojson.features.push(feat);
+        } else {
+          layers.push({
+            id: layerId,
+            name: '지점 마커',
+            kind: 'point',
+            visible: true,
+            showInLegend: false,
+            style: { stroke: '#171717', fill: '#ffffff', strokeWidth: marker === 'ring' ? 2.6 : 1.4, marker },
+            geojson: { type: 'FeatureCollection', features: [feat] },
+          });
+        }
+        return { id, aspect: MAP_ASPECT_ID, patch: { customLayers: layers } };
+      });
+      withHistoryGroup(context, () => {
+        context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-custom-point`, ops);
       });
       return targetIds;
     };
@@ -433,6 +812,24 @@ const plugin = {
       });
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:add-annotation`, ops);
+      });
+      return targetIds;
+    };
+
+    const removeAnnotation = (rawArgs = {}) => {
+      const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
+      const targetIds = getSelectedMapIds(context, args.entityId);
+      if (!targetIds.length || !args.annotationId) return null;
+      const ops = targetIds.map(id => {
+        const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+        return {
+          id,
+          aspect: MAP_ASPECT_ID,
+          patch: { annotations: (current?.annotations ?? []).filter(a => a.id !== args.annotationId) },
+        };
+      });
+      withHistoryGroup(context, () => {
+        context.world.applyCanonicalTransaction(`${EXTENSION_ID}:remove-annotation`, ops);
       });
       return targetIds;
     };
@@ -484,7 +881,11 @@ const plugin = {
       const ops = targetIds.map(id => {
         const current = context.world.getCanonical(id, MAP_ASPECT_ID);
         const region = getRegionPreset(current?.regionPreset);
-        return { id, aspect: MAP_ASPECT_ID, patch: { viewport: { ...region.viewport }, bakedDetail: null } };
+        return {
+          id,
+          aspect: MAP_ASPECT_ID,
+          patch: syncFlatFields({ viewport: { ...region.viewport }, bakedDetail: null }),
+        };
       });
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:reset-viewport`, ops);
@@ -515,11 +916,44 @@ const plugin = {
       }
     };
 
+    let menubar = null;
     const explorer = mountMapExplorer(context, {
+      useExternalHud: true,
       commitViewport: (id, vp) => updateViewport(id, vp),
       toggleHighlight: (id, level, code) => toggleHighlight(id, level, code),
       bakeHighRes: id => bakeHighRes({ entityId: id }),
+      onExploreChange: () => menubar?.refresh?.(),
     });
+    menubar = mountMapMenubar(context, {
+      enterExplore: id => explorer.enter(id),
+      exitExplore: commit => explorer.exit(commit),
+      getExploringId: () => explorer.getActiveId(),
+      getExploringViewport: () => explorer.getActiveViewport(),
+      bakeFromExplore: async id => {
+        const vp = explorer.getActiveViewport();
+        if (vp) updateViewport(id, vp);
+        return bakeHighRes({ entityId: id });
+      },
+      addAnnotation: (entityId, annotation) => addAnnotation({ entityId, annotation }),
+      addCustomPoint: (entityId, lon, lat, marker) => addCustomPoint(entityId, lon, lat, marker),
+      addCustomLayer: (entityId, layer) => addCustomLayer({ entityId, layer }),
+      toggleHighlight: (entityId, level, code) => toggleHighlight(entityId, level, code),
+      toggleLayer: (entityId, layer) => toggleLayer({ entityId, layer }),
+      toggleLegend: entityId => {
+        const cur = context.world.getCanonical(entityId, MAP_ASPECT_ID);
+        if (!cur) return;
+        const resolved = resolveMapSpec(cur);
+        updateStyle({ entityId, showLegend: !resolved.legend.enabled });
+      },
+      toggleInset: entityId => {
+        const cur = context.world.getCanonical(entityId, MAP_ASPECT_ID);
+        if (!cur) return;
+        const resolved = resolveMapSpec(cur);
+        updateStyle({ entityId, showInset: !resolved.inset.enabled });
+      },
+      bakeHighRes: entityId => bakeHighRes({ entityId }),
+    });
+    disposers.push(() => menubar.dispose());
     disposers.push(() => explorer.dispose());
     disposers.push(mountMapGizmos(context, { commitDragOffset }));
 
@@ -529,6 +963,7 @@ const plugin = {
         case 'insert-map': return insertMap(args);
         case 'explore-map': {
           const targetId = getSelectedMapIds(context, args.entityId)[0];
+          menubar.clearTool();
           return targetId ? explorer.enter(targetId) : false;
         }
         case 'set-region': return setRegion(args);
@@ -537,9 +972,21 @@ const plugin = {
         case 'update-viewport': return updateViewport(args.entityId, args.viewport);
         case 'toggle-layer': return toggleLayer(args);
         case 'toggle-highlight': return toggleHighlight(args.entityId, args.level, args.code);
+        case 'remove-highlight': return removeHighlight(args);
         case 'add-custom-layer': return addCustomLayer(args);
+        case 'add-custom-point': return addCustomPoint(args.entityId, args.lon, args.lat, args.marker);
         case 'remove-custom-layer': return removeCustomLayer(args);
         case 'add-annotation': return addAnnotation(args);
+        case 'remove-annotation': return removeAnnotation(args);
+        case 'start-tool': {
+          const targetId = getSelectedMapIds(context, args.entityId)[0];
+          if (targetId && args.mode) {
+            explorer.exit(true);
+            menubar.startTool(targetId, args.mode);
+            return true;
+          }
+          return false;
+        }
         case 'bake-high-res': return bakeHighRes(args);
         case 'clear-baked': return clearBaked(args);
         case 'reset-viewport': return resetViewport(args);
@@ -576,13 +1023,17 @@ const plugin = {
         updateViewport,
         toggleLayer,
         toggleHighlight,
+        removeHighlight,
         addCustomLayer,
+        addCustomPoint,
         removeCustomLayer,
         addAnnotation,
+        removeAnnotation,
         bakeHighRes,
         clearBaked,
         resetViewport,
         explorer,
+        menubar,
       }),
       dispose() {
         for (const d of disposers.splice(0).reverse()) {
@@ -611,6 +1062,7 @@ export {
   getOfflineBaseGis,
   mountMapExplorer,
   mountMapGizmos,
+  mountMapMenubar,
   parseCustomGisInput,
   parseMapCss,
   planWhiteMapChanges,
@@ -620,5 +1072,6 @@ export {
   resolveMapSpec,
   resolveMapStyle,
   settingsSchema,
+  syncFlatFields,
   whiteMapAspect,
 };

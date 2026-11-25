@@ -7,6 +7,7 @@ import {
   createMapPropsForRegion,
   createMapPropsFromThematicPreset,
   resolveMapSpec,
+  syncFlatFields,
 } from './model.js';
 import { MAP_PRINT_PRESETS, parseMapCss } from './print-style.js';
 
@@ -42,7 +43,7 @@ export function planWhiteMapChanges(world, actions = []) {
         throw new Error(`actions[${i}] customCss 오류: ${parseMapCss(patchIn.customCss).error}`);
       }
 
-      const mapProps = {
+      const mapProps = syncFlatFields({
         ...base,
         ...(typeof patchIn.title === 'string' ? { title: patchIn.title } : {}),
         ...(patchIn.projection ? { projection: patchIn.projection } : {}),
@@ -55,7 +56,7 @@ export function planWhiteMapChanges(world, actions = []) {
         ...(Array.isArray(patchIn.annotations) ? { annotations: patchIn.annotations } : {}),
         ...(isRecord(patchIn.inset) ? { inset: { ...base.inset, ...patchIn.inset } } : {}),
         ...(isRecord(patchIn.legend) ? { legend: { ...base.legend, ...patchIn.legend } } : {}),
-      };
+      });
 
       const x = Number.isFinite(act.x) ? act.x : 80 + i * 32;
       const y = Number.isFinite(act.y) ? act.y : 80 + i * 32;
@@ -79,13 +80,13 @@ export function planWhiteMapChanges(world, actions = []) {
       if (patchIn.customCss !== undefined && parseMapCss(patchIn.customCss).error) {
         throw new Error(`actions[${i}] customCss 오류: ${parseMapCss(patchIn.customCss).error}`);
       }
-      const next = {
+      const next = syncFlatFields({
         ...patchIn,
         ...(isRecord(patchIn.viewport) ? { viewport: { ...(current.viewport ?? {}), ...patchIn.viewport } } : {}),
         ...(isRecord(patchIn.baseLayers) ? { baseLayers: { ...(current.baseLayers ?? {}), ...patchIn.baseLayers } } : {}),
         ...(isRecord(patchIn.inset) ? { inset: { ...(current.inset ?? {}), ...patchIn.inset } } : {}),
         ...(isRecord(patchIn.legend) ? { legend: { ...(current.legend ?? {}), ...patchIn.legend } } : {}),
-      };
+      });
       ops.push({ id, aspect: MAP_ASPECT_ID, patch: next });
       summary.push(`update:${id}`);
       continue;
