@@ -63,10 +63,11 @@ test('top-fixed HUD toolbar shows on selection with CSS hover tooltips, step bar
 
   // Hidden when nothing is selected
   nextFrame?.();
-  const bar = hud.querySelector('.wm-toolbar');
+  const bar = hud.querySelector('[data-wm-menubar].stem-toolbar');
   assert.ok(bar);
   assert.equal(bar.hidden, true);
-  assert.ok(bar.querySelector('style').textContent.includes('left:50%;top:12px'));
+  assert.ok(bar.querySelector(':scope > .stem-toolbar-row[role=toolbar] > .stem-sep'));
+  assert.ok(bar.querySelector('button > .stem-tooltip[role=tooltip]'));
 
   // Selecting the white map reveals the top-fixed toolbar with hover tooltips
   selected = ['m1'];
@@ -83,7 +84,7 @@ test('top-fixed HUD toolbar shows on selection with CSS hover tooltips, step bar
   nextFrame?.();
   assert.equal(menubar.getActiveTool()?.mode, 'annotation');
   assert.equal(mount.dataset.canvasUi, 'true');
-  const step = bar.querySelector('.wm-step');
+  const step = bar.querySelector('.stem-step');
   assert.equal(step.hidden, false);
   assert.ok(step.textContent.includes('지시선 라벨'));
 

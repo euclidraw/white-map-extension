@@ -1,6 +1,32 @@
 /*!
 # Third-Party Notices
 
+## FigureToolbar stylesheet
+
+`src/styles/stem-toolbar.css` is copied from `src/edit/toolbar.ts` in jiwonMe/alid-stem-extensions (9c693da).
+
+MIT License
+
+Copyright (c) 2026 alid contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## d3-geo & topojson-client
 - License: ISC (Copyright Mike Bostock)
 
@@ -20,7 +46,7 @@ import { createRoot } from "react-dom/client";
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.2.3",
+	version: "0.2.4",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -124129,32 +124155,11 @@ function mountMapGizmos(context, actions) {
 		detach();
 	};
 }
+// src/styles/stem-toolbar.css?inline
+var stem_toolbar_default = ".stem-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;\n  max-width:calc(100% - 24px);pointer-events:none;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}\n.stem-toolbar[hidden]{display:none}\n.stem-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);\n  border-radius:8px;background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}\n.stem-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;\n  background:transparent;color:inherit;font:inherit;cursor:pointer}\n.stem-toolbar .stem-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}\n.stem-toolbar button:hover .stem-tooltip,.stem-toolbar button:focus-visible .stem-tooltip{display:block}\n.stem-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5)}\n.stem-toolbar button[aria-pressed=\"true\"]{background:var(--alid-accent-soft,#eeeeff);color:var(--alid-accent,#625bf6)}\n.stem-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#625bf6);outline-offset:1px}\n.stem-toolbar .stem-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}\n.stem-toolbar .stem-step{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:8px;background:var(--alid-text,#18181b);\n  color:var(--alid-bg-surface,#fff);pointer-events:auto}\n.stem-toolbar .stem-step[hidden]{display:none}\n.stem-toolbar .stem-step button{height:24px;padding:0 8px;background:#ffffff1f}\n.stem-toolbar .stem-step button:hover{background:#ffffff33}\n.stem-toolbar kbd{font:inherit;opacity:.55}\n";
 // src/map-menubar.js
 var NS = "http://www.w3.org/2000/svg";
-var TOOLBAR_STYLE = `
-.wm-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;
-  max-width:calc(100% - 24px);pointer-events:none;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
-.wm-toolbar[hidden]{display:none}
-.wm-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);
-  border-radius:var(--alid-radius,8px);background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
-.wm-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;
-  background:transparent;color:var(--alid-text-secondary,inherit);font:inherit;cursor:pointer}
-.wm-toolbar .wm-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;
-  padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);
-  box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}
-.wm-toolbar button:hover .wm-tooltip,.wm-toolbar button:focus-visible .wm-tooltip{display:block}
-.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5);color:var(--alid-text,#18181b)}
-.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#e5f4fe);color:var(--alid-accent,#008FF0)}
-.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#008FF0);outline-offset:1px}
-.wm-toolbar .wm-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}
-.wm-toolbar .wm-step{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:var(--alid-radius,8px);background:var(--alid-text,#18181b);
-  color:var(--alid-bg-surface,#fff);pointer-events:auto;white-space:nowrap}
-.wm-toolbar .wm-step[hidden]{display:none}
-.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
-.wm-toolbar .wm-step button:hover{background:color-mix(in srgb,currentColor 24%,transparent);color:inherit}
-.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#008FF0);color:var(--alid-accent-contrast,#fff)}
-.wm-toolbar .wm-step button:disabled{opacity:.45;cursor:default}
-.wm-toolbar kbd{font:inherit;opacity:.55}
+var PROMPT_STYLE = `
 .wm-prompt{position:absolute;display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:var(--alid-radius-small,6px);
   background:var(--alid-bg-surface,#fff);border:1px solid var(--alid-accent,#008FF0);box-shadow:0 4px 16px #0000001a;
   color:var(--alid-text,#18181b);font:12px/1.4 var(--alid-font,system-ui,sans-serif);pointer-events:auto;z-index:40}
@@ -124353,7 +124358,7 @@ function screenToGeo(mountEl, props, width, height, clientX, clientY) {
 * Top-fixed canvas HUD toolbar matching alid-stem-extensions' FigureToolbar pattern:
 * - Pinned horizontally at top-center (`left: 50%; top: 12px; transform: translateX(-50%)`)
 * - Pure CSS hover/focus tooltips (`role="tooltip"`) below each icon button
-* - Contextual second row (`.wm-step`) for active placement tools & exploration status
+* - Contextual second row (`.stem-step`) for active placement tools & exploration status
 */
 function mountMapMenubar(context, actions) {
 	const provider = context?.services?.get?.("canvas.active-tool-surface");
@@ -124530,7 +124535,7 @@ function mountMapMenubar(context, actions) {
 	function ensureToolbar() {
 		if (rootEl || !hud || !doc) return;
 		rootEl = doc.createElement("div");
-		rootEl.className = "wm-toolbar";
+		rootEl.className = "stem-toolbar";
 		rootEl.dataset.canvasUi = "";
 		rootEl.dataset.wmMenubar = "true";
 		rootEl.hidden = true;
@@ -124548,15 +124553,15 @@ function mountMapMenubar(context, actions) {
 			});
 		}
 		const style = doc.createElement("style");
-		style.textContent = TOOLBAR_STYLE;
+		style.textContent = stem_toolbar_default + "\n" + PROMPT_STYLE;
 		rowEl = doc.createElement("div");
-		rowEl.className = "wm-toolbar-row";
+		rowEl.className = "stem-toolbar-row";
 		rowEl.setAttribute("role", "toolbar");
 		rowEl.setAttribute("aria-label", "백지도 도구");
 		for (const item of TOOL_ITEMS) {
 			if (item.separator) {
 				const sep = doc.createElement("span");
-				sep.className = "wm-sep";
+				sep.className = "stem-sep";
 				sep.setAttribute("role", "separator");
 				rowEl.append(sep);
 				continue;
@@ -124569,7 +124574,7 @@ function mountMapMenubar(context, actions) {
 			if (icon) btn.append(icon);
 			else btn.append(doc.createTextNode(item.label));
 			const tooltip = doc.createElement("span");
-			tooltip.className = "wm-tooltip";
+			tooltip.className = "stem-tooltip";
 			tooltip.setAttribute("role", "tooltip");
 			tooltip.textContent = item.tooltip;
 			btn.append(tooltip);
@@ -124602,7 +124607,7 @@ function mountMapMenubar(context, actions) {
 			rowEl.append(btn);
 		}
 		stepEl = doc.createElement("div");
-		stepEl.className = "wm-step";
+		stepEl.className = "stem-step";
 		stepEl.setAttribute("role", "status");
 		stepEl.hidden = true;
 		rootEl.append(style, rowEl, stepEl);
@@ -124621,7 +124626,6 @@ function mountMapMenubar(context, actions) {
 				const bakeBtn = doc.createElement("button");
 				bakeBtn.type = "button";
 				bakeBtn.dataset.wmHudBake = "true";
-				bakeBtn.dataset.active = "true";
 				bakeBtn.disabled = baking;
 				bakeBtn.textContent = baking ? "10m 베이크 중…" : "10m 고해상도 베이크";
 				bakeBtn.addEventListener("click", async (e) => {
@@ -124671,7 +124675,7 @@ function mountMapMenubar(context, actions) {
 				const b = doc.createElement("button");
 				b.type = "button";
 				b.textContent = mLabel;
-				if (activeTool.marker === mKey) b.dataset.active = "true";
+				b.setAttribute("aria-pressed", String(activeTool.marker === mKey));
 				b.addEventListener("click", (e) => {
 					e.preventDefault();
 					e.stopPropagation();
@@ -124687,7 +124691,7 @@ function mountMapMenubar(context, actions) {
 			const styleBtn = doc.createElement("button");
 			styleBtn.type = "button";
 			styleBtn.textContent = activeTool.doubleLine ? "이중선" : "단선";
-			if (activeTool.doubleLine) styleBtn.dataset.active = "true";
+			styleBtn.setAttribute("aria-pressed", String(activeTool.doubleLine));
 			styleBtn.addEventListener("click", (e) => {
 				e.preventDefault();
 				e.stopPropagation();
@@ -124700,7 +124704,6 @@ function mountMapMenubar(context, actions) {
 			finishBtn.type = "button";
 			finishBtn.textContent = "완료";
 			finishBtn.disabled = activeTool.coords.length < 2;
-			if (activeTool.coords.length >= 2) finishBtn.dataset.active = "true";
 			finishBtn.addEventListener("click", (e) => {
 				e.preventDefault();
 				e.stopPropagation();

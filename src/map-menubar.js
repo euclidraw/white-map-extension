@@ -6,32 +6,12 @@ import {
 import { MAP_ASPECT_ID } from './manifest.js';
 import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
 
+// Vendored from alid-stem-extensions/src/edit/toolbar.ts (MIT); no runtime dependency.
+import stemToolbarCss from './styles/stem-toolbar.css?inline';
+
 const NS = 'http://www.w3.org/2000/svg';
 
-const TOOLBAR_STYLE = `
-.wm-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;
-  max-width:calc(100% - 24px);pointer-events:none;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
-.wm-toolbar[hidden]{display:none}
-.wm-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);
-  border-radius:var(--alid-radius,8px);background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
-.wm-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;
-  background:transparent;color:var(--alid-text-secondary,inherit);font:inherit;cursor:pointer}
-.wm-toolbar .wm-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;
-  padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);
-  box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}
-.wm-toolbar button:hover .wm-tooltip,.wm-toolbar button:focus-visible .wm-tooltip{display:block}
-.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5);color:var(--alid-text,#18181b)}
-.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#e5f4fe);color:var(--alid-accent,#008FF0)}
-.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#008FF0);outline-offset:1px}
-.wm-toolbar .wm-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}
-.wm-toolbar .wm-step{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:var(--alid-radius,8px);background:var(--alid-text,#18181b);
-  color:var(--alid-bg-surface,#fff);pointer-events:auto;white-space:nowrap}
-.wm-toolbar .wm-step[hidden]{display:none}
-.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
-.wm-toolbar .wm-step button:hover{background:color-mix(in srgb,currentColor 24%,transparent);color:inherit}
-.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#008FF0);color:var(--alid-accent-contrast,#fff)}
-.wm-toolbar .wm-step button:disabled{opacity:.45;cursor:default}
-.wm-toolbar kbd{font:inherit;opacity:.55}
+const PROMPT_STYLE = `
 .wm-prompt{position:absolute;display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:var(--alid-radius-small,6px);
   background:var(--alid-bg-surface,#fff);border:1px solid var(--alid-accent,#008FF0);box-shadow:0 4px 16px #0000001a;
   color:var(--alid-text,#18181b);font:12px/1.4 var(--alid-font,system-ui,sans-serif);pointer-events:auto;z-index:40}
@@ -137,7 +117,7 @@ function screenToGeo(mountEl, props, width, height, clientX, clientY) {
  * Top-fixed canvas HUD toolbar matching alid-stem-extensions' FigureToolbar pattern:
  * - Pinned horizontally at top-center (`left: 50%; top: 12px; transform: translateX(-50%)`)
  * - Pure CSS hover/focus tooltips (`role="tooltip"`) below each icon button
- * - Contextual second row (`.wm-step`) for active placement tools & exploration status
+ * - Contextual second row (`.stem-step`) for active placement tools & exploration status
  */
 export function mountMapMenubar(context, actions) {
   const provider = context?.services?.get?.('canvas.active-tool-surface');
@@ -314,7 +294,7 @@ export function mountMapMenubar(context, actions) {
   function ensureToolbar() {
     if (rootEl || !hud || !doc) return;
     rootEl = doc.createElement('div');
-    rootEl.className = 'wm-toolbar';
+    rootEl.className = 'stem-toolbar';
     rootEl.dataset.canvasUi = '';
     rootEl.dataset.wmMenubar = 'true';
     rootEl.hidden = true;
@@ -331,17 +311,17 @@ export function mountMapMenubar(context, actions) {
     }
 
     const style = doc.createElement('style');
-    style.textContent = TOOLBAR_STYLE;
+    style.textContent = stemToolbarCss + '\n' + PROMPT_STYLE;
 
     rowEl = doc.createElement('div');
-    rowEl.className = 'wm-toolbar-row';
+    rowEl.className = 'stem-toolbar-row';
     rowEl.setAttribute('role', 'toolbar');
     rowEl.setAttribute('aria-label', '백지도 도구');
 
     for (const item of TOOL_ITEMS) {
       if (item.separator) {
         const sep = doc.createElement('span');
-        sep.className = 'wm-sep';
+        sep.className = 'stem-sep';
         sep.setAttribute('role', 'separator');
         rowEl.append(sep);
         continue;
@@ -355,7 +335,7 @@ export function mountMapMenubar(context, actions) {
       else btn.append(doc.createTextNode(item.label));
 
       const tooltip = doc.createElement('span');
-      tooltip.className = 'wm-tooltip';
+      tooltip.className = 'stem-tooltip';
       tooltip.setAttribute('role', 'tooltip');
       tooltip.textContent = item.tooltip;
       btn.append(tooltip);
@@ -389,7 +369,7 @@ export function mountMapMenubar(context, actions) {
     }
 
     stepEl = doc.createElement('div');
-    stepEl.className = 'wm-step';
+    stepEl.className = 'stem-step';
     stepEl.setAttribute('role', 'status');
     stepEl.hidden = true;
 
@@ -414,7 +394,6 @@ export function mountMapMenubar(context, actions) {
         const bakeBtn = doc.createElement('button');
         bakeBtn.type = 'button';
         bakeBtn.dataset.wmHudBake = 'true';
-        bakeBtn.dataset.active = 'true';
         bakeBtn.disabled = baking;
         bakeBtn.textContent = baking ? '10m 베이크 중…' : '10m 고해상도 베이크';
         bakeBtn.addEventListener('click', async e => {
@@ -463,7 +442,7 @@ export function mountMapMenubar(context, actions) {
         const b = doc.createElement('button');
         b.type = 'button';
         b.textContent = mLabel;
-        if (activeTool.marker === mKey) b.dataset.active = 'true';
+        b.setAttribute('aria-pressed', String(activeTool.marker === mKey));
         b.addEventListener('click', e => {
           e.preventDefault();
           e.stopPropagation();
@@ -479,7 +458,7 @@ export function mountMapMenubar(context, actions) {
       const styleBtn = doc.createElement('button');
       styleBtn.type = 'button';
       styleBtn.textContent = activeTool.doubleLine ? '이중선' : '단선';
-      if (activeTool.doubleLine) styleBtn.dataset.active = 'true';
+      styleBtn.setAttribute('aria-pressed', String(activeTool.doubleLine));
       styleBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
@@ -492,7 +471,6 @@ export function mountMapMenubar(context, actions) {
       finishBtn.type = 'button';
       finishBtn.textContent = '완료';
       finishBtn.disabled = activeTool.coords.length < 2;
-      if (activeTool.coords.length >= 2) finishBtn.dataset.active = 'true';
       finishBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
