@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+import {
+  MAP_ASPECT_ID,
+  createMapPropsFromThematicPreset,
+  mountMapExplorer,
+  renderMapDom,
+} from '../dist/plugin.js';
+
+test('double-clicking a map seizes drag/wheel inside the frame and commits viewport once on Escape', () => {
+  const { window } = new JSDOM('<main><div data-entity-id="m1"></div><aside></aside></main>');
+  const doc = window.document;
+  const surface = doc.querySelector('main');
+  const host = surface.firstElementChild;
+  const hud = doc.querySelector('aside');
+
+  let props = createMapPropsFromThematicPreset('csat-dongbei');
+  const commits = [];
+  const highlights = [];
+  renderMapDom(host, props, { x: 0, y: 0, width: 480, height: 360, rotation: 0 }, 'm1');
+  const mount = host.firstElementChild;
+
+  const rect = () => ({ left: 0, top: 0, right: 480, bottom: 360, width: 480, height: 360 });
+  mount.getBoundingClientRect = rect;
+  hud.getBoundingClientRect = rect;
+  mount.querySelector('svg').getBoundingClientRect = rect;
+
+  const context = {
+    world: {
+      getCanonical: (_id, aspect) => (aspect === MAP_ASPECT_ID ? props : { width: 480, height: 360, x: 0, y: 0, rotation: 0 }),
+    },
+    services: {
+      get: name => (name === 'canvas.active-tool-surface'
+        ? { get: () => ({ surface: { element: surface, hud }, selection: { getSelection: () => ['m1'] }, host: { getZoom: () => 1 } }) }
+        : undefined),
+    },
+  };
+
+  const explorer = mountMapExplorer(context, {
+    commitViewport: (id, vp) => { commits.push([id, vp]); props = { ...props, viewport: vp }; },
+    toggleHighlight: (id, level, code) => highlights.push([id, level, code]),
+    bakeHighRes: async () => {},
+  });
+
+  // Enter exploration via double-click
+  mount.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  assert.equal(explorer.getActiveId(), 'm1');
+  assert.equal(mount.dataset.canvasUi, 'true');
+  assert.equal(mount.dataset.escapeOwner, 'true');
+  assert.ok(hud.querySelector('[data-wm-explore-hud]'));
+
+  // Wheel zooms inside map frame and cancels propagation
+  const beforeScale = explorer.getActiveViewport().scale;
+  const wheelEvent = new window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -150, clientX: 240, clientY: 180 });
+  mount.dispatchEvent(wheelEvent);
+  assert.equal(wheelEvent.defaultPrevented, true);
+  assert.ok(explorer.getActiveViewport().scale > beforeScale);
+
+  // Drag pans centerLon/centerLat without committing yet
+  const beforeLon = explorer.getActiveViewport().centerLon;
+  const firePtr = (type, x, y) => {
+    const e = new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+    Object.defineProperty(e, 'pointerId', { value: 7 });
+    mount.dispatchEvent(e);
+  };
+  firePtr('pointerdown', 240, 180);
+  firePtr('pointermove', 300, 210);
+  firePtr('pointerup', 300, 210);
+  assert.notEqual(explorer.getActiveViewport().centerLon, beforeLon);
+  assert.equal(commits.length, 0);
+
+  // Escape exits exploration, releases Alid input lock, and commits once
+  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(explorer.getActiveId(), null);
+  assert.equal(mount.dataset.canvasUi, undefined);
+  assert.equal(mount.dataset.escapeOwner, undefined);
+  assert.equal(commits.length, 1);
+
+  explorer.dispose();
+});
