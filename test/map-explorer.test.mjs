@@ -79,3 +79,57 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
 
   explorer.dispose();
 });
+
+test('double-click enters exploration even when Alid select-suite retargets dblclick e.target to surface', async () => {
+  const { window } = new JSDOM('<main><div data-entity-id="m1"></div><aside></aside></main>');
+  const doc = window.document;
+  const surface = doc.querySelector('main');
+  const host = surface.firstElementChild;
+  const hud = doc.querySelector('aside');
+
+  const props = createMapPropsFromThematicPreset('csat-dongbei');
+  renderMapDom(host, props, { x: 0, y: 0, width: 480, height: 360, rotation: 0 }, 'm1');
+  const mount = host.firstElementChild;
+  const rect = () => ({ left: 40, top: 60, right: 520, bottom: 420, width: 480, height: 360 });
+  mount.getBoundingClientRect = rect;
+  hud.getBoundingClientRect = () => ({ left: 0, top: 0, right: 900, bottom: 700, width: 900, height: 700 });
+
+  const context = {
+    world: {
+      getCanonical: (_id, aspect) => (aspect === MAP_ASPECT_ID ? props : { width: 480, height: 360, x: 40, y: 60, rotation: 0 }),
+    },
+    services: {
+      get: name => (name === 'canvas.active-tool-surface'
+        ? { get: () => ({ surface: { element: surface, hud }, selection: { getSelection: () => ['m1'] }, host: { getZoom: () => 1 } }) }
+        : undefined),
+    },
+  };
+
+  const explorer = mountMapExplorer(context, {
+    useExternalHud: true,
+    commitViewport: () => {},
+    toggleHighlight: () => {},
+    bakeHighRes: async () => {},
+  });
+
+  // Case 1: dblclick dispatched directly on surface (pointer-capture retargeted) at map coordinates
+  surface.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+  assert.equal(explorer.getActiveId(), 'm1');
+  explorer.exit(false);
+
+  // Case 2: two quick pointerdown/pointerup taps where pointerup is retargeted to surface
+  const tap = () => {
+    const down = new window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 220, clientY: 210 });
+    Object.defineProperty(down, 'pointerId', { value: 9 });
+    mount.dispatchEvent(down);
+    const up = new window.MouseEvent('pointerup', { bubbles: true, button: 0, clientX: 220, clientY: 210 });
+    Object.defineProperty(up, 'pointerId', { value: 9 });
+    surface.dispatchEvent(up);
+  };
+  tap();
+  tap();
+  await new Promise(r => queueMicrotask(r));
+  assert.equal(explorer.getActiveId(), 'm1');
+
+  explorer.dispose();
+});

@@ -20,7 +20,7 @@ import { createRoot } from "react-dom/client";
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.2.0",
+	version: "0.2.1",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -123294,6 +123294,9 @@ function mountMapExplorer(context, actions) {
 	let doc = null;
 	let active = null;
 	let frame = null;
+	let downTap = null;
+	let lastTap = null;
+	let lastEnteredAt = 0;
 	function findMount(entityId) {
 		if (!surface || !entityId) return null;
 		for (const el of surface.querySelectorAll("[data-role=\"white-map-mount\"]")) if (el.dataset.whiteMapId === entityId) return el;
@@ -123485,6 +123488,7 @@ function mountMapExplorer(context, actions) {
 		if (!active) return;
 		const prev = active;
 		active = null;
+		lastEnteredAt = 0;
 		if (prev.drag?.captured && prev.mountEl.hasPointerCapture?.(prev.drag.pointerId)) try {
 			prev.mountEl.releasePointerCapture(prev.drag.pointerId);
 		} catch {}
@@ -123502,20 +123506,99 @@ function mountMapExplorer(context, actions) {
 		else if (!commit) paintMountVector(prev.mountEl, prev.props, prev.width, prev.height, prev.id);
 		actions.onExploreChange?.(null);
 	}
+	function isBlockedTarget(target) {
+		return Boolean(target?.closest?.("[data-map-drag], [data-wm-gizmo], [data-wm-menubar], [data-wm-annotation-prompt]"));
+	}
+	/**
+	* Resolves which white-map frame lies under (clientX, clientY), even when Alid's select-suite
+	* has captured the pointer on pointerdown and retargeted pointerup/dblclick e.target to surface.
+	*/
+	function findMapIdAtPoint(clientX, clientY, candidateTargets = []) {
+		if (!surface) return null;
+		for (const target of candidateTargets) {
+			if (!target) continue;
+			if (isBlockedTarget(target)) return null;
+			const mount = target.closest?.("[data-role=\"white-map-mount\"]");
+			if (mount && !mount.dataset.mapTool && mount.dataset.whiteMapId) return mount.dataset.whiteMapId;
+		}
+		const s = provider?.get?.();
+		const selected = s?.selection?.getSelection?.() ?? [];
+		const selectedSet = new Set(selected);
+		if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+			const mounts = [...surface.querySelectorAll("[data-role=\"white-map-mount\"]")];
+			mounts.sort((a, b) => Number(selectedSet.has(b.dataset.whiteMapId)) - Number(selectedSet.has(a.dataset.whiteMapId)));
+			for (const mount of mounts) {
+				if (mount.dataset.mapTool) continue;
+				const r = mount.getBoundingClientRect();
+				if (r.width > 0 && r.height > 0 && clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return mount.dataset.whiteMapId || null;
+			}
+			const host = s?.host;
+			if (typeof host?.screenToWorld === "function") {
+				const pt = {
+					x: 0,
+					y: 0
+				};
+				host.screenToWorld(clientX, clientY, pt);
+				for (const id of selected) {
+					if (!context.world.getCanonical?.(id, MAP_ASPECT_ID)) continue;
+					const t = context.world.getCanonical?.(id, "core.transform") ?? {
+						x: 0,
+						y: 0,
+						rotation: 0
+					};
+					const b = context.world.getCanonical?.(id, "core.bounds") ?? {
+						width: 480,
+						height: 360
+					};
+					const w = b.width || 480;
+					const h = b.height || 360;
+					const cx = (t.x ?? 0) + w / 2;
+					const cy = (t.y ?? 0) + h / 2;
+					const rad = -(t.rotation ?? 0);
+					const lx = Math.cos(rad) * (pt.x - cx) - Math.sin(rad) * (pt.y - cy) + w / 2;
+					const ly = Math.sin(rad) * (pt.x - cx) + Math.cos(rad) * (pt.y - cy) + h / 2;
+					if (lx >= 0 && lx <= w && ly >= 0 && ly <= h) {
+						const mount = findMount(id);
+						if (mount && !mount.dataset.mapTool) return id;
+					}
+				}
+			}
+		}
+		return null;
+	}
 	function onDblClick(e) {
-		if (!surface || !surface.contains(e.target)) return;
-		if (e.target.closest?.("[data-map-drag], [data-wm-gizmo]")) return;
-		const mountEl = e.target.closest?.("[data-role=\"white-map-mount\"]");
-		if (!mountEl || mountEl.dataset.mapTool) return;
-		const entityId = mountEl.dataset.whiteMapId;
+		if (!surface || e.target !== surface && !surface.contains(e.target)) return;
+		if (active && Date.now() - lastEnteredAt < 300) {
+			e.preventDefault();
+			e.stopPropagation();
+			return;
+		}
+		const candidates = [
+			e.target,
+			downTap?.target,
+			lastTap?.target
+		].filter(Boolean);
+		downTap = null;
+		lastTap = null;
+		const entityId = findMapIdAtPoint(e.clientX, e.clientY, candidates);
 		if (!entityId) return;
 		if (enter(entityId)) {
+			lastEnteredAt = Date.now();
 			e.preventDefault();
 			e.stopPropagation();
 		}
 	}
 	function onPointerDown(e) {
-		if (!active) return;
+		if (!active) {
+			if (e.button === 0 && e.isPrimary !== false && surface && (e.target === surface || surface.contains(e.target))) downTap = {
+				pointerId: e.pointerId,
+				x: e.clientX,
+				y: e.clientY,
+				target: e.target,
+				time: Date.now()
+			};
+			return;
+		}
 		if (active.bar?.contains(e.target) || e.target.closest?.("[data-wm-menubar]")) return;
 		if (!active.mountEl.contains(e.target)) {
 			exit(true);
@@ -123578,6 +123661,41 @@ function mountMapExplorer(context, actions) {
 		e.stopPropagation();
 	}
 	function onPointerUp(e) {
+		if (!active) {
+			if (downTap && (e.pointerId === void 0 || downTap.pointerId === e.pointerId)) {
+				const cur = downTap;
+				downTap = null;
+				if ((Number.isFinite(e.clientX) && Number.isFinite(cur.x) ? Math.hypot(e.clientX - cur.x, e.clientY - cur.y) : 0) > 6) {
+					lastTap = null;
+					return;
+				}
+				const now = Date.now();
+				const prev = lastTap;
+				if (prev && now - prev.time <= 400 && (!Number.isFinite(e.clientX) || Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= 8)) {
+					lastTap = null;
+					const cx = e.clientX;
+					const cy = e.clientY;
+					const targets = [
+						cur.target,
+						prev.target,
+						e.target
+					].filter(Boolean);
+					queueMicrotask(() => {
+						if (active) return;
+						const entityId = findMapIdAtPoint(cx, cy, targets);
+						if (entityId && enter(entityId)) lastEnteredAt = Date.now();
+					});
+					return;
+				}
+				lastTap = {
+					time: now,
+					x: e.clientX,
+					y: e.clientY,
+					target: cur.target
+				};
+			}
+			return;
+		}
 		if (!active?.drag || active.drag.pointerId !== e.pointerId) return;
 		const d = active.drag;
 		active.drag = null;
