@@ -1,3 +1,4 @@
+import { cachedBake } from './bake-session.js';
 import { paintMountVector } from './dom-renderer.js';
 import {
   bakedCoversBbox,
@@ -502,7 +503,7 @@ export function mountMapExplorer(context, actions) {
     // Shift+Click without drag toggles Admin-0 or Admin-1 region highlight right under the cursor
     if (!d.moved && d.shiftClick && d.startLonLat) {
       const level = active.resolved.baseLayers.admin1 ? 'admin1' : 'admin0';
-      const hit = hitTestAdminFeature(d.startLonLat[0], d.startLonLat[1], level, active.props.bakedDetail);
+      const hit = hitTestAdminFeature(d.startLonLat[0], d.startLonLat[1], level, active.props.bakedDetail && active.lastMeta && cachedBake(active.lastMeta.bbox,active.viewport.scale,active.resolved.baseLayers));
       if (hit?.code) {
         actions.toggleHighlight(active.id, hit.level, hit.code);
         const latest = context.world.getCanonical(active.id, MAP_ASPECT_ID);

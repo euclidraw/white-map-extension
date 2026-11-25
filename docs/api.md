@@ -16,7 +16,7 @@
 | `annotations` | `Array` | `[]` | 경위도 기준 지시선 라벨 |
 | `inset` | `object` | `{ enabled, region, corner, offset }` | 위치 소지도 인셋 |
 | `legend` | `object` | `{ enabled, corner, offset, items }` | 테두리 범례 박스 |
-| `bakedDetail` | `object \| null` | `null` | 10m 공개 GIS CDN에서 클리핑·베이크한 오프라인 스냅샷 |
+| `bakedDetail` | `boolean` | `false` | 고해상도 베이크 사용 여부. 좌표는 세션 전용이며 문서 복원 시 필요하면 다시 요청한다. 구형 스냅샷 객체는 `true`로 전환한다. |
 
 ## 2. Props 패널 · 지도 탭 · 가로 Hover Tooltip 툴바
 

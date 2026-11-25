@@ -7,40 +7,35 @@ import {
   geoPath,
 } from 'd3-geo';
 import { feature, mesh } from 'topojson-client';
-import world50m from 'world-atlas/countries-50m.json' with { type: 'json' };
-import offlineAdmin1 from './data/admin1.json' with { type: 'json' };
-import offlineLakes from './data/lakes.json' with { type: 'json' };
-import offlineRivers from './data/rivers.json' with { type: 'json' };
+// Keep the packed assets as strings until a visible layer actually needs them.
+import worldText from 'world-atlas/countries-50m.json?raw';
+import adminText from './data/admin1.json?raw';
+import lakeText from './data/lakes.json?raw';
+import riverText from './data/rivers.json?raw';
 import { COUNTRY_NAMES_KO } from './catalog.js';
 
-let cachedBase = null;
-
-/**
- * Lazily decodes the bundled offline 50m TopoJSON and quantized rivers/lakes/Admin-1 data.
- */
-export function getOfflineBaseGis() {
-  if (cachedBase) return cachedBase;
-  const land = feature(world50m, world50m.objects.land);
-  const countries = feature(world50m, world50m.objects.countries);
-  const borders = mesh(world50m, world50m.objects.countries, (a, b) => a !== b);
-  for (const f of countries.features) {
-    const id = String(f.id ?? '').padStart(3, '0');
-    f.properties = {
-      ...(f.properties ?? {}),
-      code: id,
-      nameKo: COUNTRY_NAMES_KO[id] || f.properties?.name || id,
-    };
-  }
-  cachedBase = {
-    land,
-    countries,
-    borders,
-    rivers: offlineRivers,
-    lakes: offlineLakes,
-    admin1: offlineAdmin1,
-  };
-  return cachedBase;
-}
+let cache = {};
+const topology = () => cache.topology ??= JSON.parse(worldText);
+const offline = {
+  get land() { const t = topology(); return cache.land ??= feature(t, t.objects.land); },
+  get borders() { const t = topology(); return cache.borders ??= mesh(t, t.objects.countries, (a,b) => a !== b); },
+  get countries() {
+    if (!cache.countries) {
+      const t = topology(), fc = feature(t, t.objects.countries);
+      for (const f of fc.features) {
+        const code = String(f.id ?? '').padStart(3,'0');
+        f.properties = { ...f.properties, code, nameKo: COUNTRY_NAMES_KO[code] || f.properties?.name || code };
+      }
+      cache.countries = fc;
+    }
+    return cache.countries;
+  },
+  get rivers() { return cache.rivers ??= JSON.parse(riverText); },
+  get lakes() { return cache.lakes ??= JSON.parse(lakeText); },
+  get admin1() { return cache.admin1 ??= JSON.parse(adminText); },
+};
+export function getOfflineBaseGis() { return offline; }
+export function releaseOfflineBaseGis() { cache = {}; }
 
 export const REFERENCE_FRAME_WIDTH = 520;
 export const DEEP_ZOOM_BAKE_SCALE = 1800;

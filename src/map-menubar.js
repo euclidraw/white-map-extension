@@ -1,8 +1,9 @@
 import {
-  createMapProjection,
+  computeViewportBbox, createMapProjection,
   hitTestAdminFeature,
   isDeepZoomScale,
 } from './gis-base.js';
+import { cachedBake } from './bake-session.js';
 import { MAP_ASPECT_ID } from './manifest.js';
 import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
 
@@ -110,7 +111,7 @@ function screenToGeo(mountEl, props, width, height, clientX, clientY) {
   const proj = createMapProjection(resolved.projection, resolved.viewport, frameW, frameH);
   const ll = proj.invert?.([lx, ly]);
   if (!ll || !Number.isFinite(ll[0]) || !Number.isFinite(ll[1])) return null;
-  return { lon: Math.round(ll[0] * 1000) / 1000, lat: Math.round(ll[1] * 1000) / 1000, resolved };
+  return { lon: Math.round(ll[0] * 1000) / 1000, lat: Math.round(ll[1] * 1000) / 1000, resolved, projection:proj, frameW, frameH };
 }
 
 /**
@@ -131,6 +132,16 @@ export function mountMapMenubar(context, actions) {
   let themeObserver = null;
   let activeTool = null; // { id, mode: 'annotation'|'point'|'route'|'highlight', mountEl, marker, doubleLine, coords }
   let baking = false;
+  let bakeStatus = null;
+  async function requestBake(id, fn) {
+    if (baking) return;
+    baking = true; bakeStatus = null; schedule();
+    try {
+      const result = await fn(id);
+      if (result?.error) bakeStatus = {id, message:result.error};
+    } catch (error) { bakeStatus = {id, message:String(error?.message ?? error)}; }
+    finally { baking = false; schedule(); }
+  }
   let frame = null;
 
   function findMount(id) {
@@ -354,14 +365,7 @@ export function mountMapMenubar(context, actions) {
         } else if (item.id === 'toggle-inset') {
           actions.toggleInset(id);
         } else if (item.id === 'bake' && !baking) {
-          baking = true;
-          schedule();
-          try {
-            await actions.bakeHighRes(id);
-          } finally {
-            baking = false;
-            schedule();
-          }
+          await requestBake(id, actions.bakeHighRes);
         }
         schedule();
       });
@@ -380,6 +384,11 @@ export function mountMapMenubar(context, actions) {
   function renderStepRow(id, exploringId, props) {
     if (!stepEl || !doc) return;
     stepEl.replaceChildren();
+    if (bakeStatus?.id === id) {
+      const message = doc.createElement('span');
+      message.textContent = bakeStatus.message;
+      stepEl.append(message);
+    }
 
     if (exploringId === id) {
       const vp = actions.getExploringViewport?.();
@@ -400,14 +409,7 @@ export function mountMapMenubar(context, actions) {
           e.preventDefault();
           e.stopPropagation();
           if (baking) return;
-          baking = true;
-          schedule();
-          try {
-            await actions.bakeFromExplore?.(id);
-          } finally {
-            baking = false;
-            schedule();
-          }
+          await requestBake(id, actions.bakeFromExplore);
         });
         stepEl.append(bakeBtn);
       }
@@ -427,7 +429,7 @@ export function mountMapMenubar(context, actions) {
     }
 
     if (!activeTool || activeTool.id !== id) {
-      stepEl.hidden = true;
+      stepEl.hidden = !stepEl.childElementCount;
       return;
     }
 
@@ -562,7 +564,8 @@ export function mountMapMenubar(context, actions) {
       schedule();
     } else if (mode === 'highlight') {
       const level = geo.resolved.baseLayers.admin1 ? 'admin1' : 'admin0';
-      const hit = hitTestAdminFeature(geo.lon, geo.lat, level, props.bakedDetail);
+      const detail = geo.resolved.bakeEnabled && cachedBake(computeViewportBbox(geo.projection,geo.frameW,geo.frameH),geo.resolved.viewport.scale,geo.resolved.baseLayers);
+      const hit = hitTestAdminFeature(geo.lon, geo.lat, level, detail);
       if (hit?.code) actions.toggleHighlight(id, hit.level, hit.code);
     }
   }

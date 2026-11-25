@@ -57,8 +57,13 @@ export const MAP_DEFAULTS = Object.freeze({
   annotations: [],
   inset: { enabled: false, region: 'world', corner: 'bl', offset: { x: 0, y: 0 } },
   legend: { enabled: false, corner: 'bl', offset: { x: 0, y: 0 }, items: [] },
+  // Null prototype default accepts legacy object-valued documents before migration.
   bakedDetail: null,
 });
+
+export function isLegacyBake(v) {
+  return !!v && typeof v === 'object' && (v.land?.type === 'FeatureCollection' || v.format === 'white-map/deflate-json-v1');
+}
 
 function isRecord(v) {
   return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -124,7 +129,7 @@ export function createMapPropsFromThematicPreset(thematicId) {
     annotations: structuredClone(t.annotations ?? []),
     inset: { enabled: false, region: region.insetRegion || 'world', corner: 'bl', offset: { x: 0, y: 0 }, ...(t.inset ?? {}) },
     legend: { enabled: false, corner: 'bl', offset: { x: 0, y: 0 }, items: [], ...(t.legend ?? {}) },
-    bakedDetail: null,
+    bakedDetail: false,
   });
 }
 
@@ -152,7 +157,7 @@ export function createMapPropsForRegion(regionId = 'east-asia-oceania', stylePre
     annotations: [],
     inset: { enabled: preset.id === 'detail-corridor', region: region.insetRegion || 'world', corner: 'bl', offset: { x: 0, y: 0 } },
     legend: { enabled: false, corner: 'bl', offset: { x: 0, y: 0 }, items: [] },
-    bakedDetail: null,
+    bakedDetail: false,
   });
 }
 
@@ -287,7 +292,7 @@ export function resolveMapSpec(rawProps = {}) {
     annotations,
     inset,
     legend,
-    bakedDetail: isRecord(rawProps.bakedDetail) && rawProps.bakedDetail.land ? rawProps.bakedDetail : null,
+    bakeEnabled: rawProps.bakedDetail === true || isLegacyBake(rawProps.bakedDetail),
   };
 }
 

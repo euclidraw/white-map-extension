@@ -185,7 +185,7 @@ export function WhiteMapStudioView({ context }) {
       h('div', { style: { fontWeight: 700, fontSize: '13px' } }, '수능 백지도'),
       h('div', { style: { color: 'var(--alid-text-muted, #71717a)', fontSize: '11px' } },
         selected
-          ? `선택됨: ${resolved.region.nameKo} (${resolved.bakedDetail ? '10m 베이크' : '50m 오프라인'})`
+          ? `선택됨: ${resolved.region.nameKo} (${resolved.bakeEnabled ? '10m 베이크 켜짐' : '50m 오프라인'})`
           : '템플릿이나 지역을 선택해 캔버스에 추가하세요'),
     ),
     h('button', {

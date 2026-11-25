@@ -1,7 +1,7 @@
+import { cachedBake } from './bake-session.js';
 import { geoGraticule10 } from 'd3-geo';
 import { INSET_REGIONS } from './catalog.js';
 import {
-  bakedCoversBbox,
   computeViewportBbox,
   createGeoPath,
   createMapProjection,
@@ -197,7 +197,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   const rotationDeg = Number.isFinite(geom.rotation) ? (geom.rotation * 180) / Math.PI : 0;
 
   const resolved = resolveMapSpec(props);
-  const { style, baseLayers, highlights, customLayers, annotations, inset, legend, title, bakedDetail } = resolved;
+  const { style, baseLayers, highlights, customLayers, annotations, inset, legend, title, bakeEnabled } = resolved;
   const base = getOfflineBaseGis();
   const uid = uidFragment(entityId);
 
@@ -211,14 +211,16 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   const projection = createMapProjection(resolved.projection, resolved.viewport, frameW, frameH);
   const pathGen = createGeoPath(projection);
   const mainBbox = computeViewportBbox(projection, frameW, frameH);
-  const useBaked = Boolean(bakedDetail && bakedCoversBbox(bakedDetail, mainBbox));
+  const bakedDetail = bakeEnabled ? cachedBake(mainBbox,resolved.viewport.scale,baseLayers) : null;
+  const useBaked = Boolean(bakedDetail);
 
   const landSource = useBaked ? bakedDetail.land : base.land;
-  const countriesSource = useBaked && bakedDetail.countries?.features?.length ? bakedDetail.countries : base.countries;
-  const bordersSource = useBaked && bakedDetail.borders ? bakedDetail.borders : base.borders;
-  const riversSource = useBaked && bakedDetail.rivers?.features?.length ? bakedDetail.rivers : base.rivers;
-  const lakesSource = useBaked && bakedDetail.lakes?.features?.length ? bakedDetail.lakes : base.lakes;
-  const admin1Source = useBaked && bakedDetail.admin1?.features?.length ? bakedDetail.admin1 : base.admin1;
+  const detail = useBaked ? bakedDetail : null;
+  const source = key => detail?.[key]?.features?.length ? detail[key] : base[key];
+  const bordersSource = baseLayers.borders && (detail?.borders || base.borders);
+  const riversSource = baseLayers.rivers && source('rivers');
+  const lakesSource = baseLayers.lakes && source('lakes');
+  const admin1Source = (baseLayers.admin1 || highlights.some(h => h.level === 'admin1')) && source('admin1');
 
   // 1. Graticule
   let graticuleSvg = '';
@@ -238,7 +240,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   const highlightParts = [];
   for (const h of highlights) {
     const codeSet = new Set(h.codes.map(c => c.toUpperCase()));
-    const src = h.level === 'admin1' ? admin1Source : countriesSource;
+    const src = h.level === 'admin1' ? admin1Source : source('countries');
     const fillPaint = resolveFillPaint(h.fill, h.pattern, uid);
     for (const feat of src?.features ?? []) {
       const code = String(feat.properties?.code ?? feat.id ?? '').toUpperCase();

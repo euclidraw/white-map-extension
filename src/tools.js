@@ -80,6 +80,7 @@ export function planWhiteMapChanges(world, actions = []) {
       if (patchIn.customCss !== undefined && parseMapCss(patchIn.customCss).error) {
         throw new Error(`actions[${i}] customCss 오류: ${parseMapCss(patchIn.customCss).error}`);
       }
+      if ('bakedDetail' in patchIn && typeof patchIn.bakedDetail !== 'boolean') throw new Error('bakedDetail은 boolean입니다.');
       const next = syncFlatFields({
         ...patchIn,
         ...(isRecord(patchIn.viewport) ? { viewport: { ...(current.viewport ?? {}), ...patchIn.viewport } } : {}),
@@ -207,7 +208,7 @@ export function registerWhiteMapTools(context) {
             regionPreset: resolved.regionPreset,
             stylePreset: resolved.stylePreset,
             viewport: resolved.viewport,
-            baked10m: Boolean(resolved.bakedDetail),
+            baked10m: resolved.bakeEnabled,
             customLayerCount: resolved.customLayers.length,
           });
         }

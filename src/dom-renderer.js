@@ -1,3 +1,5 @@
+import { bakeKey, loadBake } from './bake-session.js';
+import { isDeepZoomScale } from './gis-base.js';
 import { cmuFontCss } from './fonts.js';
 import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
 import { renderMapSvg } from './svg-renderer.js';
@@ -5,6 +7,7 @@ import { renderMapSvg } from './svg-renderer.js';
 const NS = 'http://www.w3.org/2000/svg';
 const injectedDocs = new WeakSet();
 const mountState = new WeakMap();
+const restores = new WeakMap();
 
 const ALLOWED_TAGS = new Set(
   'svg g defs clipPath mask pattern linearGradient radialGradient stop use path line rect circle ellipse polyline polygon text tspan title desc'.split(' '),
@@ -140,10 +143,24 @@ export function renderMapDom(hostEl, props, derived, entityId = 'white-map') {
 
   // If the user is actively exploring this map frame, let the explorer keep owning live preview frames.
   if (mountEl.dataset.mapExploring !== 'true') {
-    paintMountVector(mountEl, props, width, height, entityId);
+    const meta = paintMountVector(mountEl, props, width, height, entityId);
+    if (resolved.bakeEnabled && isDeepZoomScale(meta.scale) && !meta.useBaked) {
+      const key = bakeKey(meta.bbox,meta.scale,resolved.baseLayers);
+      let ticket = restores.get(mountEl);
+      if (ticket?.key !== key) {
+        ticket = {key};
+        restores.set(mountEl,ticket);
+        loadBake(meta.bbox,meta.scale,resolved.baseLayers).then(() => {
+          if (restores.get(mountEl) === ticket && mountEl.isConnected && mountEl.dataset.mapExploring !== 'true') ticket.repaint?.();
+        }).catch(() => { /* Offline: keep the base map. The bake command can retry. */ });
+      }
+      ticket.repaint = () => paintMountVector(mountEl,props,width,height,entityId);
+    } else restores.delete(mountEl);
   }
 
   return () => {
+    const ticket = restores.get(mountEl);
+    if (ticket) ticket.repaint = null;
     if (mountEl && !hostEl.contains?.(mountEl)) {
       mountState.delete(hostEl);
     }

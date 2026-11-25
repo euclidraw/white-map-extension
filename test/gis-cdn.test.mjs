@@ -40,9 +40,10 @@ test('bakeHighResSnapshot clips & simplifies CDN TopoJSON/GeoJSON to viewport bb
   // Clipping keeps the baked snapshot much smaller than the full world TopoJSON
   assert.ok(JSON.stringify(baked).length < 180_000);
 
-  const bakedProps = { ...props, bakedDetail: baked };
+  // Passing a legacy record alone must not make its geometry the render source.
+  const bakedProps = { ...props, bakedDetail: true };
   const after = renderMapSvg(bakedProps, { x: 0, y: 0, width: 480, height: 360, rotation: 0 }, 'dk-bake');
-  assert.equal(after.meta.useBaked, true);
-  assert.ok(after.svg.includes('data-map-resolution="10m-baked"'));
+  assert.equal(after.meta.useBaked, false);
+  assert.ok(after.svg.includes('data-map-resolution="50m-offline"'));
   assert.doesNotMatch(after.svg, /NaN|<foreignObject/);
 });

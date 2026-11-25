@@ -8,25 +8,11 @@ export const GIS_CDN_URLS = Object.freeze({
   admin1_50m: 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_50m_admin_1_states_provinces_lakes.geojson',
 });
 
-const sessionCache = new Map();
-
-async function fetchCachedJson(url, fetcher, signal) {
-  if (fetcher === globalThis.fetch && sessionCache.has(url)) {
-    return sessionCache.get(url);
-  }
-  const response = await fetcher(url, { signal, credentials: 'omit' });
-  if (!response.ok) {
-    throw new Error(`GIS CDN 요청 실패 (HTTP ${response.status}): ${url}`);
-  }
-  const json = await response.json();
-  if (fetcher === globalThis.fetch) {
-    sessionCache.set(url, json);
-  }
-  return json;
-}
-
-export function clearCdnCache() {
-  sessionCache.clear();
+// The derived geometry is session-only; do not fill disk caches with source GIS either.
+async function fetchJson(url, fetcher, signal) {
+  const response = await fetcher(url, { signal, credentials: 'omit', cache: 'no-store' });
+  if (!response.ok) throw new Error(`GIS CDN 요청 실패 (HTTP ${response.status}): ${url}`);
+  return response.json();
 }
 
 function roundTo(n, decimals) {
@@ -257,7 +243,7 @@ function filterFeatureCollection(fc, bbox, tol, decimals, mapProps) {
 /**
  * Fetches high-resolution 10m public static GIS boundaries for the current zoomed viewport,
  * clips & simplifies them to the expanded bbox, and returns a compact self-contained snapshot
- * suitable for storing in canonical entity state (bakedDetail) for offline pure SVG export.
+ * for session-local rendering; never persist it in document or browser storage.
  */
 export async function bakeHighResSnapshot({
   bbox,
@@ -277,40 +263,50 @@ export async function bakeHighResSnapshot({
   const tol = scale >= 5000 ? 0.002 : scale >= 2500 ? 0.005 : 0.012;
   const decimals = tol < 0.005 ? 4 : 3;
 
-  const worldTopo = await fetchCachedJson(GIS_CDN_URLS.world10m, fetcher, signal);
-  const landRaw = feature(worldTopo, worldTopo.objects.land);
-  const countriesRaw = feature(worldTopo, worldTopo.objects.countries);
-  const bordersRaw = mesh(worldTopo, worldTopo.objects.countries, (a, b) => a !== b);
-
-  const land = filterFeatureCollection(
-    landRaw.type === 'FeatureCollection' ? landRaw : { type: 'FeatureCollection', features: [landRaw] },
-    paddedBbox,
-    tol,
-    decimals,
-    () => ({}),
-  );
-  const countries = filterFeatureCollection(countriesRaw, paddedBbox, tol, decimals, f => {
-    const code = String(f.id ?? '').padStart(3, '0');
-    return { code, name: f.properties?.name || '', nameKo: COUNTRY_NAMES_KO[code] || f.properties?.name || code };
-  });
-  const bordersGeom = clipAndSimplifyGeometry(bordersRaw, paddedBbox, tol, decimals);
-  const borders = bordersGeom ? { type: 'Feature', properties: {}, geometry: bordersGeom } : null;
+  const {land, countries, borders} = await clipAtlas();
+  async function clipAtlas() {
+    const topo = await fetchJson(GIS_CDN_URLS.world10m, fetcher, signal);
+    // Decode, clip and release one polygon at a time, not three whole-world
+    // coordinate collections side by side. Preserve polygon holes and feature IDs.
+    function collection(object, country) {
+      const features = [];
+      for (const g of object.geometries) {
+        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
+        const polys = [];
+        for (const arcs of g.type === 'MultiPolygon' ? g.arcs : [g.arcs]) {
+          const geom = feature(topo, {type:'Polygon', arcs}).geometry;
+          const clipped = clipAndSimplifyGeometry(geom, paddedBbox, tol, decimals);
+          if (clipped) polys.push(clipped.coordinates);
+        }
+        if (!polys.length) continue;
+        const code = String(g.id ?? '').padStart(3,'0');
+        features.push({type:'Feature', properties: country ? {code, name:g.properties?.name || '', nameKo:COUNTRY_NAMES_KO[code] || g.properties?.name || code} : {},
+          geometry: g.type === 'Polygon' ? {type:'Polygon', coordinates:polys[0]} : {type:'MultiPolygon', coordinates:polys}});
+      }
+      return {type:'FeatureCollection', features};
+    }
+    const land = collection(topo.objects.land, false);
+    const countries = collection(topo.objects.countries, true);
+    const boundary = mesh(topo, topo.objects.countries, (a,b) => a !== b);
+    const geometry = clipAndSimplifyGeometry(boundary,paddedBbox,tol,decimals);
+    return {land, countries, borders: geometry ? {type:'Feature', properties:{}, geometry} : null};
+  }
 
   let rivers = null;
   if (layers.rivers) {
-    const riversRaw = await fetchCachedJson(GIS_CDN_URLS.rivers10m, fetcher, signal);
+    const riversRaw = await fetchJson(GIS_CDN_URLS.rivers10m, fetcher, signal);
     rivers = filterFeatureCollection(riversRaw, paddedBbox, tol, decimals, f => ({ name: f.properties?.name || '' }));
   }
 
   let lakes = null;
   if (layers.lakes) {
-    const lakesRaw = await fetchCachedJson(GIS_CDN_URLS.lakes50m, fetcher, signal);
+    const lakesRaw = await fetchJson(GIS_CDN_URLS.lakes50m, fetcher, signal);
     lakes = filterFeatureCollection(lakesRaw, paddedBbox, tol, decimals, f => ({ name: f.properties?.name || '' }));
   }
 
   let admin1 = null;
   if (layers.admin1) {
-    const admin1Raw = await fetchCachedJson(GIS_CDN_URLS.admin1_50m, fetcher, signal);
+    const admin1Raw = await fetchJson(GIS_CDN_URLS.admin1_50m, fetcher, signal);
     admin1 = filterFeatureCollection(admin1Raw, paddedBbox, tol, decimals, f => ({
       code: f.properties?.iso_3166_2 || f.properties?.postal || f.properties?.name || '',
       country: f.properties?.adm0_a3 || '',

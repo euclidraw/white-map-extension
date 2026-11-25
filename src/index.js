@@ -3,7 +3,8 @@ import { REGION_PRESETS, getRegionPreset } from './catalog.js';
 import { THEMATIC_PRESETS } from './data/gis-presets.js';
 import { renderMapDom } from './dom-renderer.js';
 import { cmuSvgDefs } from './fonts.js';
-import { computeViewportBbox, createMapProjection, getOfflineBaseGis } from './gis-base.js';
+import { computeViewportBbox, createMapProjection, getOfflineBaseGis, releaseOfflineBaseGis, isDeepZoomScale } from './gis-base.js';
+import { cachedBake, clearBakeSession, loadBake } from './bake-session.js';
 import { bakeHighResSnapshot } from './gis-cdn.js';
 import {
   COMMAND_NAMES,
@@ -20,6 +21,7 @@ import {
   DEFAULT_MAP_HEIGHT,
   DEFAULT_MAP_WIDTH,
   MAP_DEFAULTS,
+  isLegacyBake,
   createMapPropsForRegion,
   createMapPropsFromThematicPreset,
   deriveMapGeometry,
@@ -488,6 +490,23 @@ const plugin = {
   },
   activate(context) {
     const disposers = [];
+    // Normalize old inline GeoJSON/deflate payloads once, including on document switch.
+    // Never copy the payload to another canonical key or rewrite custom GIS layers.
+    let disposed = false, queued = false;
+    function migrate() {
+      queued = false;
+      if (disposed) return;
+      const ops = [];
+      for (const id of context.world?.listEntityIds?.() ?? []) {
+        const props = context.world.getCanonical(id, MAP_ASPECT_ID);
+        if (isLegacyBake(props?.bakedDetail) && !context.world.isEntityReadOnly?.(id)) ops.push({id,aspect:MAP_ASPECT_ID,patch:{bakedDetail:true}});
+      }
+      if (ops.length) context.world.applyCanonicalTransaction(`${EXTENSION_ID}:migrate-bake-flag`, ops, 'bootstrap:migration');
+    }
+    function scheduleMigration() { if (!queued && !disposed) { queued = true; queueMicrotask(migrate); } }
+    const unsubscribeMigration = context.world?.subscribe?.(scheduleMigration);
+    disposers.push(() => { disposed = true; unsubscribeMigration?.(); });
+    scheduleMigration();
 
     const insertMap = (rawArgs = {}) => {
       const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {};
@@ -567,7 +586,7 @@ const plugin = {
           regionPreset: region.id,
           projection: region.projection,
           viewport: { ...region.viewport },
-          bakedDetail: null,
+          bakedDetail: false,
         }),
       }));
       withHistoryGroup(context, () => {
@@ -816,22 +835,17 @@ const plugin = {
       if (!current) return { ok: false, error: '백지도 속성을 찾지 못했습니다.' };
       const bounds = context.world.getCanonical(id, 'core.bounds') ?? { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT };
       const resolved = resolveMapSpec(current);
+      if (!isDeepZoomScale(resolved.viewport.scale)) return {ok:false, error:'지도를 더 확대한 뒤 정밀 경계를 가져오세요.'};
       const proj = createMapProjection(resolved.projection, resolved.viewport, bounds.width || DEFAULT_MAP_WIDTH, bounds.height || DEFAULT_MAP_HEIGHT);
       const bbox = computeViewportBbox(proj, bounds.width || DEFAULT_MAP_WIDTH, bounds.height || DEFAULT_MAP_HEIGHT);
 
-      const snapshot = await bakeHighResSnapshot({
-        bbox,
-        layers: resolved.baseLayers,
-        scale: resolved.viewport.scale,
-        fetcher: args.fetcher ?? globalThis.fetch,
+      const cached = cachedBake(bbox,resolved.viewport.scale,resolved.baseLayers);
+      const snapshot = cached ?? await loadBake(bbox,resolved.viewport.scale,resolved.baseLayers,args.fetcher);
+      if (context.world.getCanonical(id, MAP_ASPECT_ID) !== current || context.world.isEntityReadOnly?.(id)) return {ok:false,error:'지도가 변경되어 베이크 적용을 취소했습니다.'};
+      if (current.bakedDetail !== true) withHistoryGroup(context, () => {
+        context.world.applyCanonicalTransaction(`${EXTENSION_ID}:bake-high-res`, [{ id, aspect: MAP_ASPECT_ID, patch: { bakedDetail: true } }]);
       });
-
-      withHistoryGroup(context, () => {
-        context.world.applyCanonicalTransaction(`${EXTENSION_ID}:bake-high-res`, [
-          { id, aspect: MAP_ASPECT_ID, patch: { bakedDetail: snapshot } },
-        ]);
-      });
-      return { ok: true, id, featureCount: snapshot.featureCount, bbox: snapshot.bbox };
+      return { ok:true, id, reused:!!cached, featureCount:snapshot.featureCount, bbox:snapshot.bbox };
     };
 
     const clearBaked = (rawArgs = {}) => {
@@ -841,7 +855,7 @@ const plugin = {
       withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(
           `${EXTENSION_ID}:clear-baked`,
-          targetIds.map(id => ({ id, aspect: MAP_ASPECT_ID, patch: { bakedDetail: null } })),
+          targetIds.map(id => ({ id, aspect: MAP_ASPECT_ID, patch: { bakedDetail: false } })),
         );
       });
       return targetIds;
@@ -857,7 +871,7 @@ const plugin = {
         return {
           id,
           aspect: MAP_ASPECT_ID,
-          patch: syncFlatFields({ viewport: { ...region.viewport }, bakedDetail: null }),
+          patch: syncFlatFields({ viewport: { ...region.viewport }, bakedDetail: false }),
         };
       });
       withHistoryGroup(context, () => {
@@ -1009,6 +1023,8 @@ const plugin = {
         menubar,
       }),
       dispose() {
+        releaseOfflineBaseGis();
+        clearBakeSession();
         for (const d of disposers.splice(0).reverse()) {
           try { d(); } catch {}
         }
