@@ -55,7 +55,7 @@ export const settingsSchema = Object.freeze([
   },
   {
     key: 'autoBakeOnDeepZoom',
-    label: '크게 확대 시 10m 고해상도 자동 베이크 안내',
+    label: '크게 확대 시 상세 벡터 타일 안내',
     kind: 'boolean',
     defaultValue: true,
   },

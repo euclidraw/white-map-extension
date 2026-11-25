@@ -16,6 +16,9 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
   const hud = doc.querySelector('aside');
 
   let props = createMapPropsFromThematicPreset('csat-dongbei');
+  // Inspector values are authoritative; the old nested mirrors may disagree.
+  Object.assign(props, { showLakes:false, showRivers:false, baseLayers:{...props.baseLayers,lakes:true,rivers:true} });
+  let notifyWorld;
   const commits = [];
   const highlights = [];
   renderMapDom(host, props, { x: 0, y: 0, width: 480, height: 360, rotation: 0 }, 'm1');
@@ -28,6 +31,7 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
 
   const context = {
     world: {
+      subscribe: fn => { notifyWorld=fn; return ()=>{}; },
       getCanonical: (_id, aspect) => (aspect === MAP_ASPECT_ID ? props : { width: 480, height: 360, x: 0, y: 0, rotation: 0 }),
     },
     services: {
@@ -49,6 +53,13 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
   assert.equal(mount.dataset.canvasUi, 'true');
   assert.equal(mount.dataset.escapeOwner, 'true');
   assert.ok(hud.querySelector('[data-wm-explore-hud]'));
+
+  const water = () => mount.querySelectorAll('[data-map-layer="lakes"], [data-map-layer="rivers"], [data-map-layer="river-areas"]');
+  assert.equal(water().length,0);
+  props={...props,showRivers:true}; notifyWorld();
+  assert.ok(mount.querySelector('[data-map-layer="rivers"]'));
+  props={...props,showRivers:false}; notifyWorld();
+  assert.equal(water().length,0);
 
   // Wheel zooms inside map frame and cancels propagation
   const beforeScale = explorer.getActiveViewport().scale;
@@ -75,6 +86,7 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
   // 2) rAF re-projects the SVG land path LIVE while still dragging (before pointerup!)
   while (frames.length) frames.shift()();
   const landDuringDrag = mount.querySelector('[data-map-layer="land"]').getAttribute('d');
+  assert.equal(water().length,0);
   assert.notEqual(landDuringDrag, landBefore, 'SVG land path must visibly update during drag');
   assert.equal(commits.length, 0);
   firePtr('pointerup', 300, 210);

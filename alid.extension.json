@@ -64,12 +64,12 @@
     },
     {
       "key": "autoBakeOnDeepZoom",
-      "label": "크게 확대 시 10m 고해상도 자동 베이크 안내",
+      "label": "크게 확대 시 상세 벡터 타일 안내",
       "kind": "boolean",
       "defaultValue": true
     }
   ],
-  "version": "0.2.6",
+  "version": "0.3.1",
   "engine": "^0.1.1",
   "dependencies": {},
   "optionalDependencies": {},
@@ -82,9 +82,9 @@
     "hsmSlots": []
   },
   "title": "수능 백지도",
-  "summary": "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
+  "summary": "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 현재 화면 범위의 상세 벡터 타일 로딩를 제공하는 확장",
   "entry": "dist/plugin.js",
-  "sha256": "ed9affd0af3defe817cb0f559cca7cde4c22f6367a5c97413efcf5d25b26b989",
+  "sha256": "b1888a6ca1e1f7b4cd5a217df58cd5e75de44241950051335b78ca535097a904",
   "aspectIds": [
     "diagram.white-map.map"
   ],

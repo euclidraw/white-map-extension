@@ -1,6 +1,8 @@
 // Generates compact, quantized public-domain offline GIS datasets from Natural Earth v5.1.2.
 import { writeFile } from 'node:fs/promises';
 
+import { inputCrs } from '../src/crs.js';
+
 const BASE = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson';
 
 function roundCoord(v, decimals = 2) {
@@ -60,23 +62,28 @@ function simplifyGeom(geom, tol = 0.04, decimals = 2) {
 async function fetchJson(name) {
   const res = await fetch(`${BASE}/${name}`);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${name}`);
-  return res.json();
+  const json = await res.json();
+  inputCrs(json.crs, 'EPSG:4326'); // Reject a changed upstream CRS before quantization.
+  return json;
 }
 
-const [riversRaw, lakesRaw, admin1Raw] = await Promise.all([
+const [riversRaw, lakesRaw, admin1Raw, fineRivers] = await Promise.all([
   fetchJson('ne_50m_rivers_lake_centerlines.geojson'),
   fetchJson('ne_110m_lakes.geojson'),
   fetchJson('ne_50m_admin_1_states_provinces_lakes.geojson'),
+  fetchJson('ne_10m_rivers_lake_centerlines.geojson'),
 ]);
 
 const rivers = {
   type: 'FeatureCollection',
-  features: riversRaw.features
-    .filter(f => (f.properties?.scalerank ?? 99) <= 5)
+  features: [...riversRaw.features, ...fineRivers.features.filter(f => {
+    const coords = f.geometry.type === 'LineString' ? f.geometry.coordinates : f.geometry.coordinates.flat();
+    return coords.some(([x,y]) => x >= 125 && x <= 130 && y >= 33 && y <= 38.6) && f.properties.scalerank > 6;
+  })].filter(f => f.properties.featurecla === 'River')
     .map(f => ({
       type: 'Feature',
       properties: { name: f.properties?.name || '', rank: f.properties?.scalerank ?? 5 },
-      geometry: simplifyGeom(f.geometry, 0.12, 2),
+      geometry: f.properties.scalerank > 6 ? simplifyGeom(f.geometry, 0.008, 3) : simplifyGeom(f.geometry, 0.12, 2),
     }))
     .filter(f => f.geometry),
 };

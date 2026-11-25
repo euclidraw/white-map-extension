@@ -33,6 +33,7 @@ test('top-fixed HUD toolbar shows on selection with CSS hover tooltips, step bar
   const addedAnnotations = [];
   const addedPoints = [];
   const addedLayers = [];
+  const highlighted = [];
   const toggled = [];
 
   const context = {
@@ -54,7 +55,7 @@ test('top-fixed HUD toolbar shows on selection with CSS hover tooltips, step bar
     addAnnotation: (id, ann) => addedAnnotations.push([id, ann]),
     addCustomPoint: (id, lon, lat, marker) => addedPoints.push([id, lon, lat, marker]),
     addCustomLayer: (id, layer) => addedLayers.push([id, layer]),
-    toggleHighlight: () => {},
+    toggleHighlight: (...hit) => highlighted.push(hit),
     toggleLayer: (id, layer) => toggled.push([id, layer]),
     toggleLegend: id => toggled.push([id, 'legend']),
     toggleInset: id => toggled.push([id, 'inset']),
@@ -114,6 +115,16 @@ test('top-fixed HUD toolbar shows on selection with CSS hover tooltips, step bar
   assert.equal(addedLayers[0][1].kind, 'line');
   assert.equal(addedLayers[0][1].geojson.features[0].geometry.coordinates.length, 2);
 
+  // Centre the map over Jongno-gu: the district layer must take precedence over Admin-1.
+  Object.assign(props, {showKrDistricts:true,centerLon:126.978,centerLat:37.572});
+  bar.querySelector('[data-wm-tool-btn="highlight"]').click();
+  mount.dispatchEvent(new window.MouseEvent('pointerdown', {bubbles:true,cancelable:true,button:0,clientX:280,clientY:260}));
+  props.showKrProvinces=true;
+  mount.dispatchEvent(new window.MouseEvent('pointerdown', {bubbles:true,cancelable:true,button:0,clientX:280,clientY:260}));
+  props.showKrDistricts=false;
+  mount.dispatchEvent(new window.MouseEvent('pointerdown', {bubbles:true,cancelable:true,button:0,clientX:280,clientY:260}));
+  assert.deepEqual(highlighted,[['m1','kr-sgg','11110'],['m1','kr-sgg','11110'],['m1','kr-sido','11']]);
+
   // Quick toggle buttons trigger layer/legend actions
   bar.querySelector('[data-wm-tool-btn="toggle-rivers"]').click();
   bar.querySelector('[data-wm-tool-btn="toggle-legend"]').click();
@@ -127,7 +138,7 @@ test('all scalar properties are exposed in Inspector Props controls and override
   const fields = new Set(inspectorControls.map(c => c.field).filter(Boolean));
   for (const expected of [
     'title', 'projection', 'centerLon', 'centerLat', 'scale', 'rotateLon',
-    'showCoastline', 'showBorders', 'showAdmin1', 'showRivers', 'showLakes', 'graticule',
+    'showCoastline', 'showBorders', 'showAdmin1', 'showKrProvinces', 'showKrDistricts', 'showRivers', 'showLakes', 'graticule',
     'showLegend', 'legendCorner', 'showInset', 'insetRegion', 'insetCorner',
     'stylePreset', 'oceanColor', 'landColor', 'highlightColor', 'inkColor',
     'coastWidth', 'borderDash', 'fontStyle', 'customCss',

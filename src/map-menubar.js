@@ -1,8 +1,9 @@
 import {
   computeViewportBbox, createMapProjection,
-  hitTestAdminFeature,
+  pickAdmin,
   isDeepZoomScale,
 } from './gis-base.js';
+import { frameLayout } from './frame-layout.js';
 import { cachedBake } from './bake-session.js';
 import { MAP_ASPECT_ID } from './manifest.js';
 import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
@@ -43,14 +44,14 @@ const TOOL_ITEMS = [
   { id: 'annotation', label: '지시선 라벨', tooltip: '지시선 라벨 추가 (지도 클릭 후 지명 입력)', icon: 'annotation' },
   { id: 'point', label: '지점 마커', tooltip: '지점 마커 추가 (수도·도넛·점 배치)', icon: 'point' },
   { id: 'route', label: '경로 그리기', tooltip: '경로 선 그리기 (클릭 추가 · Enter 완료)', icon: 'route' },
-  { id: 'highlight', label: '지역 강조', tooltip: '지역 강조 (국가·성·도 클릭 토글)', icon: 'highlight' },
+  { id: 'highlight', label: '지역 강조', tooltip: '지역 강조 (국가·성·도·한국 시군구 클릭 토글)', icon: 'highlight' },
   { separator: true },
   { id: 'toggle-borders', label: '국경선', tooltip: '국경선 표시 토글', toggleLayer: 'borders', icon: 'borders', dashed: true },
   { id: 'toggle-rivers', label: '하천', tooltip: '하천 표시 토글', toggleLayer: 'rivers', icon: 'rivers' },
   { id: 'toggle-legend', label: '범례', tooltip: '범례 박스 표시 토글', icon: 'legend' },
   { id: 'toggle-inset', label: '위치 소지도', tooltip: '위치 소지도 인셋 토글', icon: 'inset' },
   { separator: true },
-  { id: 'bake', label: '10m 베이크', tooltip: '10m 고해상도 CDN 스냅샷 베이크', icon: 'bake' },
+  { id: 'bake', label: '상세 타일', tooltip: '현재 지도 범위의 상세 벡터 타일 불러오기', icon: 'bake' },
 ];
 
 function createIconSvg(doc, key, dashed = false) {
@@ -86,12 +87,7 @@ function createIconSvg(doc, key, dashed = false) {
 function screenToGeo(mountEl, props, width, height, clientX, clientY) {
   const svg = mountEl.querySelector('svg');
   const resolved = resolveMapSpec(props);
-  const titleH = resolved.title ? 26 : 0;
-  const pad = 4;
-  const frameX = pad;
-  const frameY = pad + titleH;
-  const frameW = Math.max(120, width - pad * 2);
-  const frameH = Math.max(96, height - pad * 2 - titleH);
+  const {frameX,frameY,frameW,frameH}=frameLayout(width,height,resolved);
 
   let lx = 0;
   let ly = 0;
@@ -108,6 +104,7 @@ function screenToGeo(mountEl, props, width, height, clientX, clientY) {
     ly = ((clientY - box.top) / box.height) * height - frameY;
   }
 
+  if (lx < 0 || ly < 0 || lx > frameW || ly > frameH) return null;
   const proj = createMapProjection(resolved.projection, resolved.viewport, frameW, frameH);
   const ll = proj.invert?.([lx, ly]);
   if (!ll || !Number.isFinite(ll[0]) || !Number.isFinite(ll[1])) return null;
@@ -404,7 +401,7 @@ export function mountMapMenubar(context, actions) {
         bakeBtn.type = 'button';
         bakeBtn.dataset.wmHudBake = 'true';
         bakeBtn.disabled = baking;
-        bakeBtn.textContent = baking ? '10m 베이크 중…' : '10m 고해상도 베이크';
+        bakeBtn.textContent = baking ? '타일 로딩 중…' : '상세 타일 불러오기';
         bakeBtn.addEventListener('click', async e => {
           e.preventDefault();
           e.stopPropagation();
@@ -480,7 +477,7 @@ export function mountMapMenubar(context, actions) {
       });
       stepEl.append(msg, styleBtn, finishBtn);
     } else if (activeTool.mode === 'highlight') {
-      msg.textContent = '국가·성·도를 클릭해 강조를 토글하세요';
+      msg.textContent = '국가·성·도·한국 시군구를 클릭해 강조를 토글하세요';
       stepEl.append(msg);
     }
 
@@ -563,9 +560,8 @@ export function mountMapMenubar(context, actions) {
       activeTool.coords.push([geo.lon, geo.lat]);
       schedule();
     } else if (mode === 'highlight') {
-      const level = geo.resolved.baseLayers.admin1 ? 'admin1' : 'admin0';
       const detail = geo.resolved.bakeEnabled && cachedBake(computeViewportBbox(geo.projection,geo.frameW,geo.frameH),geo.resolved.viewport.scale,geo.resolved.baseLayers);
-      const hit = hitTestAdminFeature(geo.lon, geo.lat, level, detail);
+      const hit = pickAdmin(geo.lon, geo.lat, geo.resolved.baseLayers, detail);
       if (hit?.code) actions.toggleHighlight(id, hit.level, hit.code);
     }
   }

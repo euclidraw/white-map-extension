@@ -1,3 +1,4 @@
+import { inputCrs } from './crs.js';
 import { feature, mesh } from 'topojson-client';
 import { COUNTRY_NAMES_KO } from './catalog.js';
 
@@ -12,7 +13,9 @@ export const GIS_CDN_URLS = Object.freeze({
 async function fetchJson(url, fetcher, signal) {
   const response = await fetcher(url, { signal, credentials: 'omit', cache: 'no-store' });
   if (!response.ok) throw new Error(`GIS CDN 요청 실패 (HTTP ${response.status}): ${url}`);
-  return response.json();
+  const data = await response.json();
+  inputCrs(data.crs, 'EPSG:4326');
+  return data;
 }
 
 function roundTo(n, decimals) {

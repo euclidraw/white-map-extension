@@ -84,7 +84,7 @@ export function planWhiteMapChanges(world, actions = []) {
       const next = syncFlatFields({
         ...patchIn,
         ...(isRecord(patchIn.viewport) ? { viewport: { ...(current.viewport ?? {}), ...patchIn.viewport } } : {}),
-        ...(isRecord(patchIn.baseLayers) ? { baseLayers: { ...(current.baseLayers ?? {}), ...patchIn.baseLayers } } : {}),
+        ...(isRecord(patchIn.baseLayers) ? { baseLayers: { ...resolveMapSpec(current).baseLayers, ...patchIn.baseLayers } } : {}),
         ...(isRecord(patchIn.inset) ? { inset: { ...(current.inset ?? {}), ...patchIn.inset } } : {}),
         ...(isRecord(patchIn.legend) ? { legend: { ...(current.legend ?? {}), ...patchIn.legend } } : {}),
       });
@@ -164,8 +164,8 @@ export function registerWhiteMapTools(context) {
             stylePreset: `수능 인쇄 프리셋: ${MAP_PRINT_PRESETS.map(p => p.id).join(', ')}`,
             projection: 'mercator | naturalEarth1 | conicEqualArea | equirectangular',
             viewport: '{ centerLon, centerLat, scale, rotateLon }',
-            baseLayers: '{ coastline, borders, admin1, rivers, lakes, graticule }',
-            highlights: 'Array<{ level: "admin0"|"admin1", codes: string[], fill, pattern, legendLabel }>',
+            baseLayers: '{ coastline, borders, admin1, krProvinces, krDistricts, rivers, lakes, graticule }',
+            highlights: 'Array<{ level: "admin0"|"admin1"|"kr-sido"|"kr-sgg", codes: string[], fill, pattern, legendLabel }>',
             customLayers: 'Array<{ id, name, kind: "polygon"|"line"|"point", style, geojson }>',
             annotations: 'Array<{ id, lon, lat, text, dx, dy, leaderLine, halo }>',
             customCss: '--map-ocean / land / ink / coast / border / admin1 / river / border-dash / font 선언 문자열',

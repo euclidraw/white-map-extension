@@ -1,3 +1,5 @@
+import { BASE_CRS_LABEL } from './crs.js';
+import { frameLayout } from './frame-layout.js';
 import metadata from '../extension.json' with { type: 'json' };
 import { REGION_PRESETS, getRegionPreset } from './catalog.js';
 import { THEMATIC_PRESETS } from './data/gis-presets.js';
@@ -78,7 +80,7 @@ const COMMAND_LABELS = Object.freeze({
   'remove-highlight': '강조 그룹 삭제',
   'add-custom-point': '지점 마커 배치',
   'start-tool': '지도 배치 도구 시작',
-  'bake-high-res': '10m 고해상도 CDN 스냅샷 베이크',
+  'bake-high-res': '현재 범위 상세 타일 불러오기',
   'clear-baked': '50m 오프라인 경계 복원',
   'reset-viewport': '지도 시점 초기화',
 });
@@ -132,7 +134,8 @@ const whiteMapAspect = Object.freeze({
         id: 'white-map.projection.inspector',
         kind: 'segmented',
         field: 'projection',
-        label: '투영법',
+        label: '화면 투영법',
+        description: '데이터 기준: ' + BASE_CRS_LABEL + '. 이 선택은 좌표를 바꾸지 않습니다.',
         section: '백지도 기본',
         placement: 'inspector',
         options: [
@@ -201,7 +204,7 @@ const whiteMapAspect = Object.freeze({
       {
         id: 'white-map.bake.inspector',
         kind: 'action',
-        label: '10m 고해상도 CDN 베이크',
+        label: '현재 범위 상세 타일 불러오기',
         commandSymbol: `${EXTENSION_ID}:bake-high-res`,
         section: '시점 · 좌표',
         placement: 'inspector',
@@ -250,6 +253,16 @@ const whiteMapAspect = Object.freeze({
         label: '성·도 경계 (점선)',
         section: '기본 레이어',
         placement: 'inspector',
+      },
+      {
+        id: 'white-map.showKrProvinces.inspector', kind: 'toggle', field: 'showKrProvinces',
+        label: '대한민국 시·도 경계', section: '기본 레이어', placement: 'inspector',
+        description: '시·군·구와 함께 표시하면 더 작은 시·군·구가 클릭됩니다.',
+      },
+      {
+        id: 'white-map.showKrDistricts.inspector', kind: 'toggle', field: 'showKrDistricts',
+        label: '대한민국 시·군·구 경계', section: '기본 레이어', placement: 'inspector',
+        description: '경계를 켜고 지역 강조 도구로 원하는 시·군·구를 클릭하세요.',
       },
       {
         id: 'white-map.showRivers.inspector',
@@ -684,7 +697,8 @@ const plugin = {
         if (!current) continue;
         const resolved = resolveMapSpec(current);
         const list = structuredClone(resolved.highlights);
-        const idx = list.findIndex(h => h.level === level);
+        const containing = list.findIndex(h => h.level === level && h.codes.includes(cleanCode));
+        const idx = containing >= 0 ? containing : list.findIndex(h => h.level === level);
         if (idx >= 0) {
           const exists = list[idx].codes.includes(cleanCode);
           list[idx].codes = exists
@@ -836,8 +850,9 @@ const plugin = {
       const bounds = context.world.getCanonical(id, 'core.bounds') ?? { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT };
       const resolved = resolveMapSpec(current);
       if (!isDeepZoomScale(resolved.viewport.scale)) return {ok:false, error:'지도를 더 확대한 뒤 정밀 경계를 가져오세요.'};
-      const proj = createMapProjection(resolved.projection, resolved.viewport, bounds.width || DEFAULT_MAP_WIDTH, bounds.height || DEFAULT_MAP_HEIGHT);
-      const bbox = computeViewportBbox(proj, bounds.width || DEFAULT_MAP_WIDTH, bounds.height || DEFAULT_MAP_HEIGHT);
+      const {frameW:w,frameH:h}=frameLayout(bounds.width || DEFAULT_MAP_WIDTH,bounds.height || DEFAULT_MAP_HEIGHT,resolved,true);
+      const proj = createMapProjection(resolved.projection,resolved.viewport,w,h);
+      const bbox = computeViewportBbox(proj,w,h,true);
 
       const cached = cachedBake(bbox,resolved.viewport.scale,resolved.baseLayers);
       const snapshot = cached ?? await loadBake(bbox,resolved.viewport.scale,resolved.baseLayers,args.fetcher);
@@ -845,7 +860,7 @@ const plugin = {
       if (current.bakedDetail !== true) withHistoryGroup(context, () => {
         context.world.applyCanonicalTransaction(`${EXTENSION_ID}:bake-high-res`, [{ id, aspect: MAP_ASPECT_ID, patch: { bakedDetail: true } }]);
       });
-      return { ok:true, id, reused:!!cached, featureCount:snapshot.featureCount, bbox:snapshot.bbox };
+      return { ok:true, id, reused:!!cached, featureCount:snapshot.featureCount, bbox };
     };
 
     const clearBaked = (rawArgs = {}) => {

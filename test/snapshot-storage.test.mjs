@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {readFile} from 'node:fs/promises';
 import {JSDOM} from 'jsdom';
 import plugin, {MAP_ASPECT_ID, createMapPropsForRegion, renderMapSvg, renderMapDom} from '../dist/plugin.js';
 
@@ -10,8 +9,8 @@ test('bake saves only the flag; reopening restores from network without rewritin
   const writes=[]; let fetches=0;
   const activate=()=>plugin.activate({world:{getCanonical:(_id,key)=>key===MAP_ASPECT_ID?props:bounds,
     applyCanonicalTransaction:(_caller,ops)=>{writes.push(ops[0].patch);props={...props,...ops[0].patch};}},services:{get:()=>undefined}});
-  const topo=JSON.parse(await readFile(new URL('../node_modules/world-atlas/countries-50m.json',import.meta.url)));
-  const fetcher=async url=>{fetches++;return {ok:true,json:async()=>url.includes('countries-10m')?topo:{type:'FeatureCollection',features:[]}}};
+  const fetcher=async url=>{fetches++;if(url.endsWith('/planet'))return {ok:true,json:async()=>({tiles:['https://tiles.openfreemap.org/planet/test/{z}/{x}/{y}.pbf']})};
+    assert.match(url,/\/\d+\/\d+\/\d+\.pbf$/);return {ok:true,arrayBuffer:async()=>new ArrayBuffer(0)};};
   const args={entityId:'m',fetcher};
   const original=globalThis.fetch;
   let runtime=activate();
@@ -28,7 +27,15 @@ test('bake saves only the flag; reopening restores from network without rewritin
     const doc=new JSDOM('<div id="host"></div>').window.document, host=doc.querySelector('#host');
     renderMapDom(host,props,bounds,'m');
     await new Promise(r=>setTimeout(r,0));
-    assert.equal(host.querySelector('[data-map-resolution]').dataset.mapResolution,'10m-baked');
+    assert.match(host.querySelector('[data-map-resolution]').dataset.mapResolution,/^vector-z\d+$/);
+    const credit=host.querySelector('[data-map-field="attribution"]');
+    assert.ok(credit.textContent.includes('© OpenStreetMap contributors'));
+    assert.equal(credit.parentElement, host.querySelector('[data-white-map]'));
+    const {frameX,frameW,frameY,frameH}=renderMapSvg(props,bounds,'m').meta;
+    assert.equal(credit.getAttribute('font-size'),'4.5');
+    assert.equal(credit.getAttribute('text-anchor'),'end');
+    assert.equal(Number(credit.getAttribute('x')),frameX+frameW);
+    assert.equal(Number(credit.getAttribute('y'))-4.5,frameY+frameH+1);
     assert.ok(fetches>before);assert.equal(writes.length,1);
     runtime.api.clearBaked({entityId:'m'});
     assert.deepEqual(writes.at(-1),{bakedDetail:false});

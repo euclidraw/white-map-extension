@@ -16,7 +16,7 @@ const ALLOWED_ATTRS = new Set((
   'id class viewBox preserveAspectRatio transform d points x y x1 x2 y1 y2 cx cy r rx ry dx dy width height ' +
   'fill stroke color opacity fill-opacity stroke-opacity fill-rule clip-rule stroke-width stroke-dasharray stroke-dashoffset ' +
   'stroke-linecap stroke-linejoin stroke-miterlimit clip-path mask shape-rendering ' +
-  'text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing ' +
+  'textLength lengthAdjust text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing ' +
   'patternUnits patternContentUnits patternTransform clipPathUnits href aria-hidden ' +
   'data-white-map data-map-region data-map-preset data-map-resolution data-map-layer data-map-highlight ' +
   'data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field data-map-pan-layer'
@@ -145,16 +145,16 @@ export function renderMapDom(hostEl, props, derived, entityId = 'white-map') {
   if (mountEl.dataset.mapExploring !== 'true') {
     const meta = paintMountVector(mountEl, props, width, height, entityId);
     if (resolved.bakeEnabled && isDeepZoomScale(meta.scale) && !meta.useBaked) {
-      const key = bakeKey(meta.bbox,meta.scale,resolved.baseLayers);
+      const key = bakeKey(meta.tileBbox,meta.scale);
       let ticket = restores.get(mountEl);
-      if (ticket?.key !== key) {
+      if (key && ticket?.key !== key) {
         ticket = {key};
         restores.set(mountEl,ticket);
-        loadBake(meta.bbox,meta.scale,resolved.baseLayers).then(() => {
+        loadBake(meta.tileBbox,meta.scale,resolved.baseLayers).then(() => {
           if (restores.get(mountEl) === ticket && mountEl.isConnected && mountEl.dataset.mapExploring !== 'true') ticket.repaint?.();
         }).catch(() => { /* Offline: keep the base map. The bake command can retry. */ });
       }
-      ticket.repaint = () => paintMountVector(mountEl,props,width,height,entityId);
+      if (ticket) ticket.repaint = () => paintMountVector(mountEl,props,width,height,entityId);
     } else restores.delete(mountEl);
   }
 

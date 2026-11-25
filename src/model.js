@@ -1,3 +1,4 @@
+import { inputCrs, normalizeCollection, normalizePosition } from './crs.js';
 import { feature as topoFeature } from 'topojson-client';
 import { getRegionPreset } from './catalog.js';
 import { getThematicPreset } from './data/gis-presets.js';
@@ -12,6 +13,8 @@ export const DEFAULT_BASE_LAYERS = Object.freeze({
   coastline: true,
   borders: true,
   admin1: false,
+  krDistricts: false,
+  krProvinces: false,
   rivers: false,
   lakes: true,
   graticule: 'equator-left',
@@ -33,6 +36,8 @@ export const MAP_DEFAULTS = Object.freeze({
   showCoastline: true,
   showBorders: true,
   showAdmin1: false,
+  showKrDistricts: false,
+  showKrProvinces: false,
   showRivers: false,
   showLakes: true,
   graticule: 'equator-left',
@@ -92,6 +97,8 @@ export function syncFlatFields(props) {
     ...(Number.isFinite(vp.rotateLon) ? { rotateLon: vp.rotateLon } : {}),
     ...(typeof bl.coastline === 'boolean' ? { showCoastline: bl.coastline } : {}),
     ...(typeof bl.borders === 'boolean' ? { showBorders: bl.borders } : {}),
+    ...(typeof bl.krProvinces === 'boolean' ? { showKrProvinces: bl.krProvinces } : {}),
+    ...(typeof bl.krDistricts === 'boolean' ? { showKrDistricts: bl.krDistricts } : {}),
     ...(typeof bl.admin1 === 'boolean' ? { showAdmin1: bl.admin1 } : {}),
     ...(typeof bl.rivers === 'boolean' ? { showRivers: bl.rivers } : {}),
     ...(typeof bl.lakes === 'boolean' ? { showLakes: bl.lakes } : {}),
@@ -194,6 +201,8 @@ export function resolveMapSpec(rawProps = {}) {
   const baseLayers = {
     coastline: typeof rawProps.showCoastline === 'boolean' ? rawProps.showCoastline : (blRaw.coastline ?? DEFAULT_BASE_LAYERS.coastline),
     borders: typeof rawProps.showBorders === 'boolean' ? rawProps.showBorders : (blRaw.borders ?? DEFAULT_BASE_LAYERS.borders),
+    krProvinces: rawProps.showKrProvinces ?? blRaw.krProvinces ?? false,
+    krDistricts: rawProps.showKrDistricts ?? blRaw.krDistricts ?? false,
     admin1: typeof rawProps.showAdmin1 === 'boolean' ? rawProps.showAdmin1 : (blRaw.admin1 ?? DEFAULT_BASE_LAYERS.admin1),
     rivers: typeof rawProps.showRivers === 'boolean' ? rawProps.showRivers : (blRaw.rivers ?? DEFAULT_BASE_LAYERS.rivers),
     lakes: typeof rawProps.showLakes === 'boolean' ? rawProps.showLakes : (blRaw.lakes ?? DEFAULT_BASE_LAYERS.lakes),
@@ -206,7 +215,7 @@ export function resolveMapSpec(rawProps = {}) {
     ? rawProps.highlights
         .filter(h => isRecord(h) && Array.isArray(h.codes) && h.codes.length > 0)
         .map(h => ({
-          level: h.level === 'admin1' ? 'admin1' : 'admin0',
+          level: ['admin1','kr-sido','kr-sgg'].includes(h.level) ? h.level : 'admin0',
           codes: h.codes.map(c => String(c).trim()).filter(Boolean),
           fill: typeof h.fill === 'string' && h.fill ? h.fill : style.highlight,
           pattern: ['none', 'hatch', 'crosshatch', 'stipple'].includes(h.pattern) ? h.pattern : 'none',
@@ -308,7 +317,7 @@ export function deriveMapGeometry(_props, id, view) {
   };
 }
 
-export function parseCustomGisInput(raw) {
+export function parseCustomGisInput(raw, selectedCrs = 'auto') {
   if (typeof raw !== 'string' || !raw.trim()) {
     return { ok: false, error: 'GIS 데이터(GeoJSON, TopoJSON 또는 CSV)를 입력하세요.' };
   }
@@ -316,6 +325,7 @@ export function parseCustomGisInput(raw) {
   if (text.startsWith('{') || text.startsWith('[')) {
     try {
       const parsed = JSON.parse(text);
+      const sourceCrs = inputCrs(parsed?.crs, selectedCrs);
       let fc = null;
       if (parsed.type === 'Topology' && isRecord(parsed.objects)) {
         const firstKey = Object.keys(parsed.objects)[0];
@@ -331,10 +341,11 @@ export function parseCustomGisInput(raw) {
       } else {
         return { ok: false, error: '지원하지 않는 JSON 구조입니다. GeoJSON 또는 TopoJSON을 입력하세요.' };
       }
+      normalizeCollection(fc, sourceCrs);
       if (!fc.features.length) return { ok: false, error: '피처(features)가 비어 있습니다.' };
       const gType = fc.features[0]?.geometry?.type || '';
       const kind = /Point/i.test(gType) ? 'point' : /Line/i.test(gType) ? 'line' : 'polygon';
-      return { ok: true, geojson: fc, kind, count: fc.features.length };
+      return { ok: true, sourceCrs, geojson: fc, kind, count: fc.features.length };
     } catch (error) {
       return { ok: false, error: `JSON 파싱 오류: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -351,20 +362,24 @@ export function parseCustomGisInput(raw) {
   if (lonIdx < 0 || latIdx < 0) {
     return { ok: false, error: 'CSV 헤더에 경도(lon/lng)와 위도(lat) 열이 필요합니다.' };
   }
+  let sourceCrs;
+  try { sourceCrs = inputCrs(null,selectedCrs); } catch (e) { return {ok:false,error:e.message}; }
   const features = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim());
     const lon = Number(cols[lonIdx]);
     const lat = Number(cols[latIdx]);
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+    if (!cols[lonIdx] || !cols[latIdx]) return {ok:false,error:`CSV ${i+1}행에 좌표가 없습니다.`};
+    let position;
+    try { position = normalizePosition([lon,lat],sourceCrs); } catch (e) { return {ok:false,error:`CSV ${i+1}행: ${e.message}`}; }
     features.push({
       type: 'Feature',
       properties: { name: nameIdx >= 0 ? cols[nameIdx] || '' : `지점 ${i}` },
-      geometry: { type: 'Point', coordinates: [lon, lat] },
+      geometry: { type: 'Point', coordinates: position },
     });
   }
   if (!features.length) {
     return { ok: false, error: '유효한 경위도 좌표를 찾지 못했습니다.' };
   }
-  return { ok: true, geojson: { type: 'FeatureCollection', features }, kind: 'point', count: features.length };
+  return { ok: true, sourceCrs, geojson: { type: 'FeatureCollection', features }, kind: 'point', count: features.length };
 }

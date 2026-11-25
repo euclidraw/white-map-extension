@@ -9,6 +9,7 @@ import {
 import { feature, mesh } from 'topojson-client';
 // Keep the packed assets as strings until a visible layer actually needs them.
 import worldText from 'world-atlas/countries-50m.json?raw';
+import { decodeKrDistricts, decodeKrProvinces, decodeKrLines } from './kr-districts.js';
 import adminText from './data/admin1.json?raw';
 import lakeText from './data/lakes.json?raw';
 import riverText from './data/rivers.json?raw';
@@ -32,6 +33,10 @@ const offline = {
   },
   get rivers() { return cache.rivers ??= JSON.parse(riverText); },
   get lakes() { return cache.lakes ??= JSON.parse(lakeText); },
+  get krProvinces() { return cache.krProvinces ??= decodeKrProvinces(); },
+  get krProvinceLines() { return cache.krProvinceLines ??= decodeKrLines(true); },
+  get krDistrictLines() { return cache.krDistrictLines ??= decodeKrLines(false); },
+  get krDistricts() { return cache.krDistricts ??= decodeKrDistricts(); },
   get admin1() { return cache.admin1 ??= JSON.parse(adminText); },
 };
 export function getOfflineBaseGis() { return offline; }
@@ -90,7 +95,7 @@ export function createGeoPath(projection) {
 /**
  * Samples the frame perimeter + center to estimate the visible lon/lat bounding box.
  */
-export function computeViewportBbox(projection, width, height) {
+export function computeViewportBbox(projection, width, height, wrap = false) {
   const pts = [];
   const steps = 6;
   for (let i = 0; i <= steps; i++) {
@@ -121,6 +126,11 @@ export function computeViewportBbox(projection, width, height) {
     if (lat > maxLat) maxLat = lat;
   }
   const spanLon = maxLon - minLon;
+  if (spanLon > 220 && wrap) {
+    const aroundDateLine = pts.map(([lon]) => lon < 0 ? lon+360 : lon);
+    const west=Math.min(...aroundDateLine), east=Math.max(...aroundDateLine);
+    if (east-west < 180) return [west,minLat,east-360,maxLat];
+  }
   if (spanLon > 220) {
     return [-180, Math.max(-85, minLat), 180, Math.min(85, maxLat)];
   }
@@ -138,7 +148,7 @@ export function computeViewportBbox(projection, width, height) {
 export function hitTestAdminFeature(lon, lat, level = 'admin0', bakedDetail = null) {
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
   const base = getOfflineBaseGis();
-  const collection = level === 'admin1'
+  const collection = level === 'kr-sido' ? base.krProvinces : level === 'kr-sgg' ? base.krDistricts : level === 'admin1'
     ? (bakedDetail?.admin1?.features?.length ? bakedDetail.admin1 : base.admin1)
     : (bakedDetail?.countries?.features?.length ? bakedDetail.countries : base.countries);
   if (!collection?.features) return null;
@@ -156,6 +166,15 @@ export function hitTestAdminFeature(lon, lat, level = 'admin0', bakedDetail = nu
     }
   }
   return null;
+}
+
+// Korean district picking takes precedence only on a real district hit.
+export function pickAdmin(lon, lat, layers, detail) {
+  if ((layers.krDistricts || layers.krProvinces) && lon >= 124 && lon <= 132 && lat >= 32 && lat <= 39) {
+    const district = hitTestAdminFeature(lon, lat, layers.krDistricts ? 'kr-sgg' : 'kr-sido');
+    if (district) return district;
+  }
+  return hitTestAdminFeature(lon, lat, layers.admin1 ? 'admin1' : 'admin0', detail);
 }
 
 /**

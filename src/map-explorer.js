@@ -1,10 +1,10 @@
-import { cachedBake } from './bake-session.js';
+import { bakeKey, cachedBake, loadBake } from './bake-session.js';
 import { paintMountVector } from './dom-renderer.js';
 import {
   bakedCoversBbox,
   computeViewportBbox,
   createMapProjection,
-  hitTestAdminFeature,
+  pickAdmin,
   isDeepZoomScale,
 } from './gis-base.js';
 import { MAP_ASPECT_ID } from './manifest.js';
@@ -82,7 +82,7 @@ export function mountMapExplorer(context, actions) {
       const needsBake = isDeepZoomScale(viewport.scale) && (!props.bakedDetail || !lastMeta?.useBaked);
       bakeBtn.style.display = needsBake || baking ? 'inline-flex' : 'none';
       bakeBtn.disabled = Boolean(baking);
-      bakeBtn.textContent = baking ? '10m 베이크 중…' : '10m 고해상도 베이크';
+      bakeBtn.textContent = baking ? '타일 로딩 중…' : '상세 타일 불러오기';
     }
   }
 
@@ -102,8 +102,23 @@ export function mountMapExplorer(context, actions) {
       doc?.defaultView?.cancelAnimationFrame?.(previewFrame);
       previewFrame = null;
     }
-    const previewProps = syncFlatFields({ ...active.props, viewport: active.viewport });
+    const current = context.world.getCanonical(active.id, MAP_ASPECT_ID) ?? active.props;
+    const previewProps = { ...current, ...syncFlatFields({ viewport: active.viewport }) };
+    active.resolved = resolveMapSpec(previewProps);
+    active.props = current;
     active.lastMeta = paintMountVector(active.mountEl, previewProps, active.width, active.height, active.id);
+    // Only fetch after the map camera settles. Never use the host canvas zoom.
+    clearTimeout(active.tileTimer);
+    if (!active.drag && previewProps.bakedDetail && !active.lastMeta.useBaked) {
+      const session=active, {tileBbox,scale}=active.lastMeta, key=bakeKey(tileBbox,scale);
+      if(key && session.tileKey!==key) session.tileTimer=setTimeout(async()=>{
+        session.tileKey=key;
+        try {
+          await loadBake(tileBbox,scale,session.resolved.baseLayers);
+          if(active===session && !session.drag && bakeKey(session.lastMeta.tileBbox,session.viewport.scale)===key) renderPreview();
+        } catch { /* Stay on the offline base; explicit bake can retry. */ }
+      },180);
+    }
     if (active.drag) {
       active.drag.renderedDx = active.drag.pendingDx ?? 0;
       active.drag.renderedDy = active.drag.pendingDy ?? 0;
@@ -259,6 +274,7 @@ export function mountMapExplorer(context, actions) {
   function exit(commit = true) {
     if (!active) return;
     const prev = active;
+    clearTimeout(prev.tileTimer);
     active = null;
     lastEnteredAt = 0;
 
@@ -279,7 +295,7 @@ export function mountMapExplorer(context, actions) {
         rotateLon: prev.viewport.rotateLon ?? 0,
       });
     } else if (!commit) {
-      paintMountVector(prev.mountEl, prev.props, prev.width, prev.height, prev.id);
+      paintMountVector(prev.mountEl, context.world.getCanonical(prev.id, MAP_ASPECT_ID) ?? prev.props, prev.width, prev.height, prev.id);
     }
     actions.onExploreChange?.(null);
   }
@@ -502,8 +518,7 @@ export function mountMapExplorer(context, actions) {
 
     // Shift+Click without drag toggles Admin-0 or Admin-1 region highlight right under the cursor
     if (!d.moved && d.shiftClick && d.startLonLat) {
-      const level = active.resolved.baseLayers.admin1 ? 'admin1' : 'admin0';
-      const hit = hitTestAdminFeature(d.startLonLat[0], d.startLonLat[1], level, active.props.bakedDetail && active.lastMeta && cachedBake(active.lastMeta.bbox,active.viewport.scale,active.resolved.baseLayers));
+      const hit = pickAdmin(d.startLonLat[0], d.startLonLat[1], active.resolved.baseLayers, active.props.bakedDetail && active.lastMeta && cachedBake(active.lastMeta.bbox,active.viewport.scale,active.resolved.baseLayers));
       if (hit?.code) {
         actions.toggleHighlight(active.id, hit.level, hit.code);
         const latest = context.world.getCanonical(active.id, MAP_ASPECT_ID);
@@ -621,6 +636,9 @@ export function mountMapExplorer(context, actions) {
 
   attach();
   const offSurface = provider?.subscribe?.(attach);
+  const offWorld = context.world?.subscribe?.(() => {
+    if (active && context.world.getCanonical(active.id, MAP_ASPECT_ID) !== active.props) schedulePreview();
+  });
   const offFrames = context?.services?.get?.('canvas.frames')?.subscribe?.(() => {
     if (active) scheduleHud();
   });
@@ -632,6 +650,7 @@ export function mountMapExplorer(context, actions) {
     getActiveViewport: () => (active ? { ...active.viewport } : null),
     dispose() {
       offFrames?.();
+      offWorld?.();
       offSurface?.();
       detach();
     },

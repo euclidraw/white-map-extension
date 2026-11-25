@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BASE_CRS_LABEL } from './crs.js';
+import districtNames from './data/kr-district-names.json' with { type: 'json' };
 import { REGION_PRESETS } from './catalog.js';
 import { THEMATIC_PRESETS } from './data/gis-presets.js';
 import { EXTENSION_ID, MAP_ASPECT_ID, STUDIO_PANEL_ID } from './manifest.js';
@@ -7,6 +9,7 @@ import { parseCustomGisInput, resolveMapSpec } from './model.js';
 import { EXAMPLE_MAP_CSS, parseMapCss } from './print-style.js';
 
 const h = React.createElement;
+const provinceNames = [...new Map(districtNames.map(([code,province])=>[code.slice(0,2),[code.slice(0,2),province,'']])).values()];
 
 function readSelectedMap(world, selectedIds) {
   if (!world || !Array.isArray(selectedIds)) return null;
@@ -58,6 +61,7 @@ export function WhiteMapStudioView({ context }) {
   const [tick, setTick] = useState(0);
   const [regionQuery, setRegionQuery] = useState('');
   const [cssDraft, setCssDraft] = useState('');
+  const [sourceCrs,setSourceCrs] = useState('auto');
   const [gisName, setGisName] = useState('사용자 레이어');
   const [gisDraft, setGisDraft] = useState('name,lon,lat\n서울,126.98,37.56\n부산,129.07,35.18');
   const [gisPattern, setGisPattern] = useState('none');
@@ -67,6 +71,9 @@ export function WhiteMapStudioView({ context }) {
   const [gisStatus, setGisStatus] = useState(null);
   const [hlLevel, setHlLevel] = useState('admin0');
   const [hlCodes, setHlCodes] = useState('410, 156, 392');
+  const [districtQuery, setDistrictQuery] = useState('');
+  const koreanNames = hlLevel === 'kr-sido' ? provinceNames : hlLevel === 'kr-sgg' ? districtNames : null;
+  const unit = hlLevel === 'kr-sido' ? '시·도' : '시·군·구';
   const [hlLabel, setHlLabel] = useState('A 지역');
 
   useEffect(() => {
@@ -126,7 +133,7 @@ export function WhiteMapStudioView({ context }) {
 
   const handleAddCustomGis = () => {
     if (!selected) return;
-    const parsed = parseCustomGisInput(gisDraft);
+    const parsed = parseCustomGisInput(gisDraft,sourceCrs);
     if (!parsed.ok) {
       setGisStatus({ ok: false, message: parsed.error });
       return;
@@ -150,13 +157,13 @@ export function WhiteMapStudioView({ context }) {
         geojson: parsed.geojson,
       },
     });
-    setGisStatus({ ok: true, message: `${parsed.count}개 피처(${parsed.kind})를 추가했습니다.` });
+    setGisStatus({ ok: true, message: `${parsed.count}개 피처 추가 · 원본 ${parsed.sourceCrs} → 저장 EPSG:4326` });
   };
 
   const handleAddHighlightGroup = () => {
     if (!selected) return;
     const codes = hlCodes.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-    if (!codes.length) return;
+    if (!codes.length || (koreanNames && codes.some(c=>!koreanNames.some(([code])=>code===c)))) return;
     const nextHighlights = [
       ...(selected.props.highlights ?? []),
       { level: hlLevel, codes, fill: gisFill, pattern: gisPattern, legendLabel: hlLabel.trim() },
@@ -185,7 +192,7 @@ export function WhiteMapStudioView({ context }) {
       h('div', { style: { fontWeight: 700, fontSize: '13px' } }, '수능 백지도'),
       h('div', { style: { color: 'var(--alid-text-muted, #71717a)', fontSize: '11px' } },
         selected
-          ? `선택됨: ${resolved.region.nameKo} (${resolved.bakeEnabled ? '10m 베이크 켜짐' : '50m 오프라인'})`
+          ? `선택됨: ${resolved.region.nameKo} (${resolved.bakeEnabled ? '상세 타일 켜짐' : '50m 오프라인'})`
           : '템플릿이나 지역을 선택해 캔버스에 추가하세요'),
     ),
     h('button', {
@@ -266,6 +273,11 @@ export function WhiteMapStudioView({ context }) {
       h('details', { open: true, style: boxStyle },
         h('summary', { style: { fontWeight: 600, fontSize: '11.5px', cursor: 'pointer' } }, '커스텀 GIS 임포트 · 레이어 관리'),
         h('div', { style: { display: 'grid', gap: '6px', marginTop: '6px' } },
+          h('small', null, '기준 좌표계: ' + BASE_CRS_LABEL + '. 투영법은 화면 표시만 바꿉니다.'),
+          h('label', null, '원본 좌표계', h('select', {value:sourceCrs,onChange:e=>setSourceCrs(e.target.value),style:inputStyle},
+            h('option',{value:'auto'},'자동 · 선언이 없으면 WGS 84'),
+            h('option',{value:'EPSG:4326'},'WGS 84 · 경도, 위도 (°)'),
+            h('option',{value:'EPSG:5179'},'Korea 2000 / 통합좌표계 · 동쪽 X, 북쪽 Y (m)'))),
           h('input', { value: gisName, onChange: e => setGisName(e.target.value), placeholder: '레이어/범례 이름', style: inputStyle }),
           h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' } },
             h('select', { value: gisPattern, onChange: e => setGisPattern(e.target.value), style: inputStyle },
@@ -319,13 +331,20 @@ export function WhiteMapStudioView({ context }) {
           `강조 그룹 (${resolved.highlights.length}) · 지시선 라벨 (${resolved.annotations.length})`),
         h('div', { style: { display: 'grid', gap: '6px', marginTop: '6px' } },
           h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' } },
-            h('select', { value: hlLevel, onChange: e => setHlLevel(e.target.value), style: inputStyle },
+            h('select', { value: hlLevel, onChange: e => { setHlLevel(e.target.value); setHlCodes(''); setDistrictQuery(''); }, style: inputStyle },
               h('option', { value: 'admin0' }, '국가 (ISO 숫자)'),
               h('option', { value: 'admin1' }, '성·도 (CN-HL…)'),
+              h('option', { value: 'kr-sido' }, '대한민국 시·도'),
+              h('option', { value: 'kr-sgg' }, '대한민국 시·군·구'),
             ),
             h('input', { value: hlLabel, onChange: e => setHlLabel(e.target.value), placeholder: '범례 이름', style: inputStyle }),
           ),
-          h('input', { value: hlCodes, onChange: e => setHlCodes(e.target.value), placeholder: '410, 156, 392', style: inputStyle }),
+          koreanNames && h(React.Fragment, null,
+            h('input', { type:'search', value:districtQuery, placeholder:'시·도, 시·군·구 이름 또는 코드 검색', 'aria-label':unit+' 검색', style:inputStyle, onChange:e=>setDistrictQuery(e.target.value) }),
+            h('select', { value:'', style:inputStyle, 'aria-label':'강조할 '+unit+' 코드 추가', onChange:e=>setHlCodes([...new Set([...hlCodes.split(/[,\s]+/).filter(Boolean),e.target.value])].join(', ')) },
+              h('option', { value:'' }, unit+'를 선택해 코드 추가'),
+              ...koreanNames.filter(row=>row.join(' ').includes(districtQuery.trim())).map(([code,province,name])=>h('option',{ key:code,value:code }, province+' '+name+' ('+code+')')))),
+          h('input', { value: hlCodes, onChange: e => setHlCodes(e.target.value), placeholder: hlLevel === 'kr-sgg' ? '11110, 11680' : hlLevel === 'kr-sido' ? '11, 41' : '지역 코드 목록', style: inputStyle }),
           h('button', { type: 'button', onClick: handleAddHighlightGroup, style: btnStyle(false) }, '코드 강조 그룹 추가'),
 
           ...resolved.highlights.map((hl, idx) =>

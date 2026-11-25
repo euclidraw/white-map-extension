@@ -1,4 +1,6 @@
+import { frameLayout, CREDIT_SIZE, CREDIT_BASELINE } from './frame-layout.js';
 import { cachedBake } from './bake-session.js';
+import { DISTRICT_CREDIT } from './kr-districts.js';
 import { geoGraticule10 } from 'd3-geo';
 import { INSET_REGIONS } from './catalog.js';
 import {
@@ -201,22 +203,18 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   const base = getOfflineBaseGis();
   const uid = uidFragment(entityId);
 
-  const titleHeight = title ? 26 : 0;
-  const pad = 4;
-  const frameX = pad;
-  const frameY = pad + titleHeight;
-  const frameW = Math.max(120, width - pad * 2);
-  const frameH = Math.max(96, height - pad * 2 - titleHeight);
+  const {frameX,frameY,frameW,frameH} = frameLayout(width,height,resolved);
 
   const projection = createMapProjection(resolved.projection, resolved.viewport, frameW, frameH);
   const pathGen = createGeoPath(projection);
   const mainBbox = computeViewportBbox(projection, frameW, frameH);
-  const bakedDetail = bakeEnabled ? cachedBake(mainBbox,resolved.viewport.scale,baseLayers) : null;
+  const tileBbox = mainBbox[0]===-180 && mainBbox[2]===180 ? computeViewportBbox(projection,frameW,frameH,true) : mainBbox;
+  const bakedDetail = bakeEnabled ? cachedBake(tileBbox,resolved.viewport.scale,baseLayers) : null;
   const useBaked = Boolean(bakedDetail);
 
   const landSource = useBaked ? bakedDetail.land : base.land;
   const detail = useBaked ? bakedDetail : null;
-  const source = key => detail?.[key]?.features?.length ? detail[key] : base[key];
+  const source = key => detail?.[key] ?? base[key];
   const bordersSource = baseLayers.borders && (detail?.borders || base.borders);
   const riversSource = baseLayers.rivers && source('rivers');
   const lakesSource = baseLayers.lakes && source('lakes');
@@ -233,21 +231,26 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   }
 
   // 2. Land fill
+  const koreanLayers = baseLayers.krProvinces || baseLayers.krDistricts || highlights.some(h => ['kr-sgg','kr-sido'].includes(h.level));
+  const koreaInView = koreanLayers && mainBbox[2]>=124 && mainBbox[0]<=132 && mainBbox[3]>=32 && mainBbox[1]<=39;
   const landD = pathGen(landSource) || '';
-  const landFillSvg = landD ? `<path data-map-layer="land" d="${landD}" fill="${escapeXml(style.land)}" stroke="none"/>` : '';
+  const landClip = 'wm-land-clip-' + uid;
+  const overlayClip = ` clip-path="url(#${landClip})"`;
+  const landFillSvg = landD ? `<path id="wm-land-${uid}" data-map-layer="land" d="${landD}" fill="${escapeXml(style.land)}" stroke="none"/>` : '';
 
   // 3. Highlighted Admin-0 / Admin-1 polygons
   const highlightParts = [];
   for (const h of highlights) {
     const codeSet = new Set(h.codes.map(c => c.toUpperCase()));
-    const src = h.level === 'admin1' ? admin1Source : source('countries');
+    const src = h.level === 'kr-sido' ? base.krProvinces : h.level === 'kr-sgg' ? base.krDistricts : h.level === 'admin1' ? admin1Source : source('countries');
     const fillPaint = resolveFillPaint(h.fill, h.pattern, uid);
     for (const feat of src?.features ?? []) {
       const code = String(feat.properties?.code ?? feat.id ?? '').toUpperCase();
       if (!codeSet.has(code)) continue;
       const d = pathGen(feat);
+      const clip = koreanLayers && ['kr-sgg','kr-sido'].includes(h.level) ? overlayClip : '';
       if (d) {
-        highlightParts.push(`<path data-map-highlight="${escapeXml(code)}" d="${d}" fill="${escapeXml(fillPaint)}" stroke="none"/>`);
+        highlightParts.push(`<path data-map-highlight="${escapeXml(code)}"${clip} d="${d}" fill="${escapeXml(fillPaint)}" stroke="none"/>`);
       }
     }
   }
@@ -305,15 +308,23 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   let lakesSvg = '';
   if (baseLayers.lakes && lakesSource) {
     const ld = pathGen(lakesSource);
-    if (ld) {
+    if (ld && detail) {
+      lakesSvg = `<path data-map-layer="lakes" d="${ld}" fill="${escapeXml(style.lake)}"/>`;
+      const edge=pathGen(detail.lakeEdges);
+      if(edge) lakesSvg += `<path d="${edge}" fill="none" stroke="${escapeXml(style.coast)}" stroke-width="${style.coastWidth*0.7}"/>`;
+    } else if (ld) {
       lakesSvg = `<path data-map-layer="lakes" d="${ld}" fill="${escapeXml(style.lake)}" stroke="${escapeXml(style.coast)}" stroke-width="${Math.max(0.45, style.coastWidth * 0.7).toFixed(2)}"/>`;
     }
   }
   let riversSvg = '';
   if (baseLayers.rivers && riversSource) {
-    const rd = pathGen(riversSource);
+    const area = detail?.riverAreas && pathGen(detail.riverAreas);
+    if (area) riversSvg = `<path data-map-layer="river-areas" d="${area}" fill="${escapeXml(style.river)}" stroke="none"/>`;
+    // Low-zoom tiles can omit waterway centre lines. Use the offline lines
+    // only when the visible tile area contains neither a river line nor a river polygon.
+    const rd = pathGen(riversSource) || (detail && !area && pathGen(base.rivers));
     if (rd) {
-      riversSvg = `<path data-map-layer="rivers" d="${rd}" fill="none" stroke="${escapeXml(style.river)}" stroke-width="${style.riverWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      riversSvg += `<path data-map-layer="rivers" d="${rd}" fill="none" stroke="${escapeXml(style.river)}" stroke-width="${style.riverWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
     }
   }
 
@@ -327,6 +338,20 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     }
   }
 
+  let districtSvg = '';
+  if (koreaInView && baseLayers.krDistricts) {
+    // Include shared province edges when only the lower tier is enabled.
+    // When both are enabled the upper tier draws those edges just once.
+    const d = (pathGen(base.krDistrictLines) || '') + (baseLayers.krProvinces ? '' : pathGen(base.krProvinceLines) || '');
+    if (d) districtSvg = `<path data-map-layer="kr-sgg"${overlayClip} d="${d}" fill="none" stroke="${escapeXml(style.admin1)}" stroke-width="${style.admin1Width}" stroke-dasharray="${escapeXml(style.admin1Dash)}" stroke-linejoin="round"/>`;
+  }
+  let provinceSvg = '';
+  if (koreaInView && baseLayers.krProvinces) {
+    const d = pathGen(base.krProvinceLines);
+    if (d) provinceSvg = `<path data-map-layer="kr-sido"${overlayClip} d="${d}" fill="none" stroke="${escapeXml(style.admin1)}" stroke-width="${style.admin1Width + 0.4}" stroke-linejoin="round"/>`;
+  }
+  const credit = koreanLayers ? '<desc>'+escapeXml(DISTRICT_CREDIT)+'</desc>' : '';
+
   let bordersSvg = '';
   if (baseLayers.borders && bordersSource) {
     const bd = pathGen(bordersSource);
@@ -338,7 +363,8 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
 
   let coastSvg = '';
   if (baseLayers.coastline && landD) {
-    coastSvg = `<path data-map-layer="coastline" d="${landD}" fill="none" stroke="${escapeXml(style.coast)}" stroke-width="${style.coastWidth}" stroke-linejoin="round"/>`;
+    const coastD = detail ? pathGen(detail.coast) || '' : landD;
+    coastSvg = `<path data-map-layer="coastline" d="${coastD}" fill="none" stroke="${escapeXml(style.coast)}" stroke-width="${style.coastWidth}" stroke-linejoin="round"/>`;
   }
 
   // 7. Annotations (leader lines + haloed labels, draggable)
@@ -394,6 +420,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
   const clipId = `wm-clip-${uid}`;
   const defsSvg =
     `<defs>` +
+    (koreanLayers ? `<clipPath id="${landClip}">${landD ? `<use href="#wm-land-${uid}"/>` : ''}</clipPath>` : '') +
     `<clipPath id="${clipId}"><rect x="0" y="0" width="${frameW}" height="${frameH}"/></clipPath>` +
     `<pattern id="wm-hatch-${uid}" patternUnits="userSpaceOnUse" width="6" height="6">` +
     `<rect width="6" height="6" fill="#ffffff"/>` +
@@ -419,9 +446,9 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     : `translate(${x},${y})`;
 
   const svg =
-    `<g transform="${transformAttr}" data-white-map="true" data-map-region="${escapeXml(resolved.regionPreset)}" data-map-preset="${escapeXml(resolved.stylePreset)}" data-map-resolution="${useBaked ? '10m-baked' : '50m-offline'}" font-family="${escapeXml(style.fontFamily)}">` +
+    `<g transform="${transformAttr}" data-white-map="true" data-map-region="${escapeXml(resolved.regionPreset)}" data-map-preset="${escapeXml(resolved.stylePreset)}" data-map-resolution="${useBaked ? 'vector-z'+detail.zoom : '50m-offline'}" font-family="${escapeXml(style.fontFamily)}">` +
     `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>` +
-    titleSvg +
+    (useBaked ? '<desc>OpenFreeMap · © OpenMapTiles · © OpenStreetMap contributors · https://www.openstreetmap.org/copyright</desc>' : '') + credit + titleSvg +
     `<g transform="translate(${frameX},${frameY})">` +
     defsSvg +
     `<g clip-path="url(#${clipId})">` +
@@ -433,7 +460,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     customPolyParts.join('') +
     lakesSvg +
     riversSvg +
-    admin1Svg +
+    admin1Svg + districtSvg + provinceSvg +
     bordersSvg +
     coastSvg +
     customLineParts.join('') +
@@ -446,12 +473,13 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     `</g>` +
     `<rect data-map-neatline="true" x="0.5" y="0.5" width="${frameW - 1}" height="${frameH - 1}" fill="none" stroke="${escapeXml(style.ink)}" stroke-width="${style.frameWidth}"/>` +
     `</g>` +
+    (useBaked ? `<text data-map-field="attribution" x="${frameX+frameW}" y="${frameY+frameH+CREDIT_BASELINE}" text-anchor="end" font-size="${CREDIT_SIZE}"${frameW < 135 ? ` textLength="${frameW}" lengthAdjust="spacingAndGlyphs"` : ''} fill="#333" pointer-events="none">OpenFreeMap · © OpenMapTiles · © OpenStreetMap contributors</text>` : '') +
     `</g>`;
 
   return {
     svg,
     meta: {
-      bbox: mainBbox,
+      bbox: mainBbox, tileBbox,
       useBaked,
       frameX,
       frameY,
