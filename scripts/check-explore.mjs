@@ -96,8 +96,17 @@ try {
        if (!(afterWheel.scale > beforeVp.scale)) throw new Error('Wheel did not zoom inside map');
        if (leakedWheel !== 0) throw new Error('Wheel leaked to Alid canvas');
 
+       const landBeforeDrag = mount.querySelector('[data-map-layer="land"]').getAttribute('d');
        mount.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1, isPrimary: true, clientX: r.left + 200, clientY: r.top + 150 }));
        mount.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, button: 0, pointerId: 1, isPrimary: true, clientX: r.left + 250, clientY: r.top + 190 }));
+       if (!mount.querySelector('[data-map-pan-layer="true"]')?.getAttribute('transform')?.includes('translate(')) {
+         throw new Error('Pan transform did not update immediately during pointermove');
+       }
+       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+       const landDuringDrag = mount.querySelector('[data-map-layer="land"]').getAttribute('d');
+       if (landDuringDrag === landBeforeDrag) {
+         throw new Error('SVG geometry stayed frozen during live drag');
+       }
        mount.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 1, isPrimary: true, clientX: r.left + 250, clientY: r.top + 190 }));
        const afterPan = explorer.getActiveViewport();
        if (afterPan.centerLon === afterWheel.centerLon && afterPan.centerLat === afterWheel.centerLat) {

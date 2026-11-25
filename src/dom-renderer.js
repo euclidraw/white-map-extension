@@ -16,7 +16,7 @@ const ALLOWED_ATTRS = new Set((
   'text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing ' +
   'patternUnits patternContentUnits patternTransform clipPathUnits href aria-hidden ' +
   'data-white-map data-map-region data-map-preset data-map-resolution data-map-layer data-map-highlight ' +
-  'data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field'
+  'data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field data-map-pan-layer'
 ).split(' '));
 const IRI_ATTRS = new Set(['fill', 'stroke', 'clip-path', 'mask']);
 

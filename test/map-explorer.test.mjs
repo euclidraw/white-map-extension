@@ -57,8 +57,12 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
   assert.equal(wheelEvent.defaultPrevented, true);
   assert.ok(explorer.getActiveViewport().scale > beforeScale);
 
-  // Drag pans centerLon/centerLat without committing yet
+  // Drag pans centerLon/centerLat AND visibly updates the SVG live DURING pointermove (before pointerup/Esc!)
+  const frames = [];
+  window.requestAnimationFrame = cb => { frames.push(cb); return frames.length; };
+  window.cancelAnimationFrame = () => {};
   const beforeLon = explorer.getActiveViewport().centerLon;
+  const landBefore = mount.querySelector('[data-map-layer="land"]').getAttribute('d');
   const firePtr = (type, x, y) => {
     const e = new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
     Object.defineProperty(e, 'pointerId', { value: 7 });
@@ -66,6 +70,13 @@ test('double-clicking a map seizes drag/wheel inside the frame and commits viewp
   };
   firePtr('pointerdown', 240, 180);
   firePtr('pointermove', 300, 210);
+  // 1) Immediate pan-layer translate before rAF fires
+  assert.equal(mount.querySelector('[data-map-pan-layer="true"]').getAttribute('transform'), 'translate(60.0,30.0)');
+  // 2) rAF re-projects the SVG land path LIVE while still dragging (before pointerup!)
+  while (frames.length) frames.shift()();
+  const landDuringDrag = mount.querySelector('[data-map-layer="land"]').getAttribute('d');
+  assert.notEqual(landDuringDrag, landBefore, 'SVG land path must visibly update during drag');
+  assert.equal(commits.length, 0);
   firePtr('pointerup', 300, 210);
   assert.notEqual(explorer.getActiveViewport().centerLon, beforeLon);
   assert.equal(commits.length, 0);

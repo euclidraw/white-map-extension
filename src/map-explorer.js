@@ -7,7 +7,7 @@ import {
   isDeepZoomScale,
 } from './gis-base.js';
 import { MAP_ASPECT_ID } from './manifest.js';
-import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
+import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec, syncFlatFields } from './model.js';
 
 function clamp(v, lo, hi) {
   return Math.min(Math.max(v, lo), hi);
@@ -26,6 +26,7 @@ export function mountMapExplorer(context, actions) {
   let doc = null;
   let active = null; // { id, mountEl, props, width, height, viewport, initialViewport, changed, drag, bar, baking, lastMeta }
   let frame = null;
+  let previewFrame = null;
   let downTap = null;
   let lastTap = null;
   let lastEnteredAt = 0;
@@ -96,10 +97,32 @@ export function mountMapExplorer(context, actions) {
 
   function renderPreview() {
     if (!active) return;
-    const previewProps = { ...active.props, viewport: active.viewport };
+    if (previewFrame != null) {
+      doc?.defaultView?.cancelAnimationFrame?.(previewFrame);
+      previewFrame = null;
+    }
+    const previewProps = syncFlatFields({ ...active.props, viewport: active.viewport });
     active.lastMeta = paintMountVector(active.mountEl, previewProps, active.width, active.height, active.id);
+    if (active.drag) {
+      active.drag.renderedDx = active.drag.pendingDx ?? 0;
+      active.drag.renderedDy = active.drag.pendingDy ?? 0;
+    }
     updateHudBar();
     actions.onExploreChange?.(active.id);
+  }
+
+  function schedulePreview() {
+    const win = doc?.defaultView;
+    if (!win?.requestAnimationFrame) {
+      renderPreview();
+      return;
+    }
+    if (previewFrame == null) {
+      previewFrame = win.requestAnimationFrame(() => {
+        previewFrame = null;
+        renderPreview();
+      });
+    }
   }
 
   function createHudBar() {
@@ -416,7 +439,18 @@ export function mountMapExplorer(context, actions) {
         centerLat: clamp(nextCenter[1], -80, 80),
       };
       active.changed = true;
-      renderPreview();
+      // Instant GPU translation while waiting for the next rAF re-projection, so dragging tracks at full refresh rate
+      const panGroup = active.mountEl.querySelector('[data-map-pan-layer="true"]');
+      const totalDx = curLocal.x - d.startLocal.x;
+      const totalDy = curLocal.y - d.startLocal.y;
+      d.pendingDx = totalDx;
+      d.pendingDy = totalDy;
+      if (panGroup) {
+        const rx = totalDx - (d.renderedDx ?? 0);
+        const ry = totalDy - (d.renderedDy ?? 0);
+        panGroup.setAttribute('transform', `translate(${rx.toFixed(1)},${ry.toFixed(1)})`);
+      }
+      schedulePreview();
     }
     e.preventDefault();
     e.stopPropagation();
@@ -460,6 +494,7 @@ export function mountMapExplorer(context, actions) {
     const d = active.drag;
     active.drag = null;
     active.mountEl.style.cursor = 'grab';
+    if (d.moved) renderPreview();
     if (d.captured && active.mountEl.hasPointerCapture?.(e.pointerId)) {
       try { active.mountEl.releasePointerCapture(e.pointerId); } catch {}
     }
@@ -524,7 +559,7 @@ export function mountMapExplorer(context, actions) {
 
     active.viewport = nextViewport;
     active.changed = true;
-    renderPreview();
+    schedulePreview();
   }
 
   function onKeyDown(e) {
@@ -541,6 +576,10 @@ export function mountMapExplorer(context, actions) {
     if (frame != null) {
       doc?.defaultView?.cancelAnimationFrame?.(frame);
       frame = null;
+    }
+    if (previewFrame != null) {
+      doc?.defaultView?.cancelAnimationFrame?.(previewFrame);
+      previewFrame = null;
     }
     if (doc) {
       doc.removeEventListener('dblclick', onDblClick, true);

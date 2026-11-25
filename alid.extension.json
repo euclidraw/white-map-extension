@@ -69,7 +69,7 @@
       "defaultValue": true
     }
   ],
-  "version": "0.2.2",
+  "version": "0.2.3",
   "engine": "^0.1.1",
   "dependencies": {},
   "optionalDependencies": {},
@@ -84,7 +84,7 @@
   "title": "수능 백지도",
   "summary": "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
   "entry": "dist/plugin.js",
-  "sha256": "1a96686dc2735d86ee2c072b1fe5bec5dea8ed05262c2dfce02cf10663876c01",
+  "sha256": "40c2f8fb0ea22de2ae9b47975eb5e7de477c375e1a89a90fa9c13de0985a05c6",
   "aspectIds": [
     "diagram.white-map.map"
   ],

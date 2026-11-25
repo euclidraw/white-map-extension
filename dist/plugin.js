@@ -20,7 +20,7 @@ import { createRoot } from "react-dom/client";
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.2.2",
+	version: "0.2.3",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -122716,7 +122716,7 @@ function renderMapSvg(props, derived, entityId = "white-map") {
 	const defsSvg = `<defs><clipPath id="${clipId}"><rect x="0" y="0" width="${frameW}" height="${frameH}"/></clipPath><pattern id="wm-hatch-${uid}" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#ffffff"/><path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" fill="none" stroke="${escapeXml(style.ink)}" stroke-width="0.85"/></pattern><pattern id="wm-crosshatch-${uid}" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#ffffff"/><path d="M0 6L6 0M0 0L6 6" fill="none" stroke="${escapeXml(style.ink)}" stroke-width="0.7"/></pattern><pattern id="wm-stipple-${uid}" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="#d8d8d8"/><circle cx="1.4" cy="1.4" r="0.75" fill="${escapeXml(style.ink)}"/><circle cx="3.9" cy="3.9" r="0.65" fill="${escapeXml(style.ink)}"/></pattern></defs>`;
 	const titleSvg = title ? `<text data-map-field="title" x="${width / 2}" y="20" text-anchor="middle" font-size="14" font-weight="700" fill="${escapeXml(style.ink)}">${escapeXml(title)}</text>` : "";
 	return {
-		svg: `<g transform="${rotationDeg !== 0 ? `translate(${x},${y}) rotate(${rotationDeg},${width / 2},${height / 2})` : `translate(${x},${y})`}" data-white-map="true" data-map-region="${escapeXml(resolved.regionPreset)}" data-map-preset="${escapeXml(resolved.stylePreset)}" data-map-resolution="${useBaked ? "10m-baked" : "50m-offline"}" font-family="${escapeXml(style.fontFamily)}"><rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>` + titleSvg + `<g transform="translate(${frameX},${frameY})">` + defsSvg + `<g clip-path="url(#${clipId})"><rect data-map-layer="ocean" x="0" y="0" width="${frameW}" height="${frameH}" fill="${escapeXml(style.ocean)}"/>` + graticuleSvg + landFillSvg + highlightParts.join("") + customPolyParts.join("") + lakesSvg + riversSvg + admin1Svg + bordersSvg + coastSvg + customLineParts.join("") + customPointParts.join("") + annotationParts.join("") + tickSvg + insetSvg + legendSvg + `</g><rect data-map-neatline="true" x="0.5" y="0.5" width="${frameW - 1}" height="${frameH - 1}" fill="none" stroke="${escapeXml(style.ink)}" stroke-width="${style.frameWidth}"/></g></g>`,
+		svg: `<g transform="${rotationDeg !== 0 ? `translate(${x},${y}) rotate(${rotationDeg},${width / 2},${height / 2})` : `translate(${x},${y})`}" data-white-map="true" data-map-region="${escapeXml(resolved.regionPreset)}" data-map-preset="${escapeXml(resolved.stylePreset)}" data-map-resolution="${useBaked ? "10m-baked" : "50m-offline"}" font-family="${escapeXml(style.fontFamily)}"><rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>` + titleSvg + `<g transform="translate(${frameX},${frameY})">` + defsSvg + `<g clip-path="url(#${clipId})"><rect data-map-layer="ocean" x="0" y="0" width="${frameW}" height="${frameH}" fill="${escapeXml(style.ocean)}"/><g data-map-pan-layer="true">` + graticuleSvg + landFillSvg + highlightParts.join("") + customPolyParts.join("") + lakesSvg + riversSvg + admin1Svg + bordersSvg + coastSvg + customLineParts.join("") + customPointParts.join("") + annotationParts.join("") + `</g>` + tickSvg + insetSvg + legendSvg + `</g><rect data-map-neatline="true" x="0.5" y="0.5" width="${frameW - 1}" height="${frameH - 1}" fill="none" stroke="${escapeXml(style.ink)}" stroke-width="${style.frameWidth}"/></g></g>`,
 		meta: {
 			bbox: mainBbox,
 			useBaked,
@@ -122733,7 +122733,7 @@ var NS$1 = "http://www.w3.org/2000/svg";
 var injectedDocs = /* @__PURE__ */ new WeakSet();
 var mountState = /* @__PURE__ */ new WeakMap();
 var ALLOWED_TAGS = new Set("svg g defs clipPath mask pattern linearGradient radialGradient stop use path line rect circle ellipse polyline polygon text tspan title desc".split(" "));
-var ALLOWED_ATTRS = new Set("id class viewBox preserveAspectRatio transform d points x y x1 x2 y1 y2 cx cy r rx ry dx dy width height fill stroke color opacity fill-opacity stroke-opacity fill-rule clip-rule stroke-width stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit clip-path mask shape-rendering text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing patternUnits patternContentUnits patternTransform clipPathUnits href aria-hidden data-white-map data-map-region data-map-preset data-map-resolution data-map-layer data-map-highlight data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field".split(" "));
+var ALLOWED_ATTRS = new Set("id class viewBox preserveAspectRatio transform d points x y x1 x2 y1 y2 cx cy r rx ry dx dy width height fill stroke color opacity fill-opacity stroke-opacity fill-rule clip-rule stroke-width stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit clip-path mask shape-rendering text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing patternUnits patternContentUnits patternTransform clipPathUnits href aria-hidden data-white-map data-map-region data-map-preset data-map-resolution data-map-layer data-map-highlight data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field data-map-pan-layer".split(" "));
 var IRI_ATTRS = /* @__PURE__ */ new Set([
 	"fill",
 	"stroke",
@@ -123294,6 +123294,7 @@ function mountMapExplorer(context, actions) {
 	let doc = null;
 	let active = null;
 	let frame = null;
+	let previewFrame = null;
 	let downTap = null;
 	let lastTap = null;
 	let lastEnteredAt = 0;
@@ -123355,13 +123356,32 @@ function mountMapExplorer(context, actions) {
 	}
 	function renderPreview() {
 		if (!active) return;
-		const previewProps = {
+		if (previewFrame != null) {
+			doc?.defaultView?.cancelAnimationFrame?.(previewFrame);
+			previewFrame = null;
+		}
+		const previewProps = syncFlatFields({
 			...active.props,
 			viewport: active.viewport
-		};
+		});
 		active.lastMeta = paintMountVector(active.mountEl, previewProps, active.width, active.height, active.id);
+		if (active.drag) {
+			active.drag.renderedDx = active.drag.pendingDx ?? 0;
+			active.drag.renderedDy = active.drag.pendingDy ?? 0;
+		}
 		updateHudBar();
 		actions.onExploreChange?.(active.id);
+	}
+	function schedulePreview() {
+		const win = doc?.defaultView;
+		if (!win?.requestAnimationFrame) {
+			renderPreview();
+			return;
+		}
+		if (previewFrame == null) previewFrame = win.requestAnimationFrame(() => {
+			previewFrame = null;
+			renderPreview();
+		});
 	}
 	function createHudBar() {
 		if (!hud || !doc) return null;
@@ -123655,7 +123675,17 @@ function mountMapExplorer(context, actions) {
 				centerLat: clamp(nextCenter[1], -80, 80)
 			};
 			active.changed = true;
-			renderPreview();
+			const panGroup = active.mountEl.querySelector("[data-map-pan-layer=\"true\"]");
+			const totalDx = curLocal.x - d.startLocal.x;
+			const totalDy = curLocal.y - d.startLocal.y;
+			d.pendingDx = totalDx;
+			d.pendingDy = totalDy;
+			if (panGroup) {
+				const rx = totalDx - (d.renderedDx ?? 0);
+				const ry = totalDy - (d.renderedDy ?? 0);
+				panGroup.setAttribute("transform", `translate(${rx.toFixed(1)},${ry.toFixed(1)})`);
+			}
+			schedulePreview();
 		}
 		e.preventDefault();
 		e.stopPropagation();
@@ -123700,6 +123730,7 @@ function mountMapExplorer(context, actions) {
 		const d = active.drag;
 		active.drag = null;
 		active.mountEl.style.cursor = "grab";
+		if (d.moved) renderPreview();
 		if (d.captured && active.mountEl.hasPointerCapture?.(e.pointerId)) try {
 			active.mountEl.releasePointerCapture(e.pointerId);
 		} catch {}
@@ -123757,7 +123788,7 @@ function mountMapExplorer(context, actions) {
 		}
 		active.viewport = nextViewport;
 		active.changed = true;
-		renderPreview();
+		schedulePreview();
 	}
 	function onKeyDown(e) {
 		if (!active) return;
@@ -123772,6 +123803,10 @@ function mountMapExplorer(context, actions) {
 		if (frame != null) {
 			doc?.defaultView?.cancelAnimationFrame?.(frame);
 			frame = null;
+		}
+		if (previewFrame != null) {
+			doc?.defaultView?.cancelAnimationFrame?.(previewFrame);
+			previewFrame = null;
 		}
 		if (doc) {
 			doc.removeEventListener("dblclick", onDblClick, true);

@@ -424,6 +424,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     defsSvg +
     `<g clip-path="url(#${clipId})">` +
     `<rect data-map-layer="ocean" x="0" y="0" width="${frameW}" height="${frameH}" fill="${escapeXml(style.ocean)}"/>` +
+    `<g data-map-pan-layer="true">` +
     graticuleSvg +
     landFillSvg +
     highlightParts.join('') +
@@ -436,6 +437,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
     customLineParts.join('') +
     customPointParts.join('') +
     annotationParts.join('') +
+    `</g>` +
     tickSvg +
     insetSvg +
     legendSvg +
