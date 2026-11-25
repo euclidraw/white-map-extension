@@ -10,27 +10,35 @@ const NS = 'http://www.w3.org/2000/svg';
 
 const TOOLBAR_STYLE = `
 .wm-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;
-  max-width:calc(100% - 24px);pointer-events:none;z-index:30;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
+  max-width:calc(100% - 24px);pointer-events:none;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
 .wm-toolbar[hidden]{display:none}
 .wm-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);
-  border-radius:8px;background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
+  border-radius:var(--alid-radius,8px);background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
 .wm-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;
-  background:transparent;color:inherit;font:inherit;cursor:pointer}
+  background:transparent;color:var(--alid-text-secondary,inherit);font:inherit;cursor:pointer}
 .wm-toolbar .wm-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;
   padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);
   box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}
 .wm-toolbar button:hover .wm-tooltip,.wm-toolbar button:focus-visible .wm-tooltip{display:block}
-.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5)}
-.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#eeeeff);color:var(--alid-accent,#2563eb)}
-.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#2563eb);outline-offset:1px}
+.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5);color:var(--alid-text,#18181b)}
+.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#e5f4fe);color:var(--alid-accent,#008FF0)}
+.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#008FF0);outline-offset:1px}
 .wm-toolbar .wm-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}
-.wm-toolbar .wm-step{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-radius:8px;background:var(--alid-text,#18181b);
-  color:var(--alid-bg-surface,#fff);pointer-events:auto;box-shadow:0 4px 16px #0000001f;white-space:nowrap}
+.wm-toolbar .wm-step{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:var(--alid-radius,8px);background:var(--alid-text,#18181b);
+  color:var(--alid-bg-surface,#fff);pointer-events:auto;white-space:nowrap}
 .wm-toolbar .wm-step[hidden]{display:none}
-.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:#ffffff1f;color:inherit;font-size:11.5px}
-.wm-toolbar .wm-step button:hover{background:#ffffff33}
-.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#2563eb);color:#fff}
+.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
+.wm-toolbar .wm-step button:hover{background:color-mix(in srgb,currentColor 24%,transparent);color:inherit}
+.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#008FF0);color:var(--alid-accent-contrast,#fff)}
 .wm-toolbar .wm-step button:disabled{opacity:.45;cursor:default}
+.wm-toolbar kbd{font:inherit;opacity:.55}
+.wm-prompt{position:absolute;display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:var(--alid-radius-small,6px);
+  background:var(--alid-bg-surface,#fff);border:1px solid var(--alid-accent,#008FF0);box-shadow:0 4px 16px #0000001a;
+  color:var(--alid-text,#18181b);font:12px/1.4 var(--alid-font,system-ui,sans-serif);pointer-events:auto;z-index:40}
+.wm-prompt input{width:136px;border:0;outline:none;background:transparent;color:inherit;font:inherit}
+.wm-prompt button{height:24px;padding:0 8px;border:0;border-radius:var(--alid-control-radius,4px);background:var(--alid-accent,#008FF0);
+  color:var(--alid-accent-contrast,#fff);font:inherit;font-size:11px;font-weight:500;cursor:pointer}
+.wm-prompt button:hover{background:var(--alid-accent-hover,#0077cc)}
 `;
 
 const ICONS = {
@@ -243,39 +251,21 @@ export function mountMapMenubar(context, actions) {
     if (!hud || !doc) return;
     const hb = hud.getBoundingClientRect();
     const wrap = doc.createElement('div');
-    wrap.dataset.canvasUi = 'true';
+    wrap.className = 'wm-prompt';
+    wrap.dataset.canvasUi = '';
     wrap.dataset.escapeOwner = 'true';
     wrap.dataset.wmAnnotationPrompt = 'true';
+    const theme = doc.documentElement?.dataset?.alidTheme;
+    if (theme === 'light' || theme === 'dark') wrap.dataset.alidTheme = theme;
     const px = Math.max(8, Math.min(Math.max(8, hb.width - 210), Math.round(clientX - hb.left + 10)));
     const py = Math.max(52, Math.min(Math.max(52, hb.height - 40), Math.round(clientY - hb.top - 16)));
-    Object.assign(wrap.style, {
-      position: 'absolute',
-      left: `${px}px`,
-      top: `${py}px`,
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '4px 6px',
-      borderRadius: '6px',
-      background: 'var(--alid-bg-surface, #ffffff)',
-      border: '1.5px solid var(--alid-accent, #2563eb)',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
-      pointerEvents: 'auto',
-      zIndex: '40',
-    });
+    wrap.style.left = `${px}px`;
+    wrap.style.top = `${py}px`;
 
     const input = doc.createElement('input');
     input.type = 'text';
     input.placeholder = '지명 입력 후 Enter';
     input.dataset.canvasEditor = 'true';
-    Object.assign(input.style, {
-      width: '132px',
-      fontSize: '12px',
-      border: 'none',
-      outline: 'none',
-      background: 'transparent',
-      color: 'var(--alid-text, #18181b)',
-    });
 
     let composing = false;
     input.addEventListener('compositionstart', () => { composing = true; });
@@ -313,16 +303,6 @@ export function mountMapMenubar(context, actions) {
     const okBtn = doc.createElement('button');
     okBtn.type = 'button';
     okBtn.textContent = '추가';
-    Object.assign(okBtn.style, {
-      padding: '2px 7px',
-      borderRadius: '4px',
-      border: 'none',
-      background: 'var(--alid-accent, #2563eb)',
-      color: '#ffffff',
-      fontSize: '11px',
-      fontWeight: '600',
-      cursor: 'pointer',
-    });
     okBtn.addEventListener('click', e => { e.stopPropagation(); commit(); });
 
     wrap.append(input, okBtn);

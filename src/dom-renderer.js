@@ -29,7 +29,7 @@ function ensureDocumentCss(doc) {
       style.textContent = [
         cmuFontCss,
         '[data-role="white-map-mount"] [data-map-drag] { cursor: grab; touch-action: none; user-select: none; }',
-        '[data-role="white-map-mount"][data-map-exploring="true"] { cursor: grab; outline: 2px solid var(--alid-accent, #2563eb); outline-offset: -2px; }',
+        '[data-role="white-map-mount"][data-map-exploring="true"] { cursor: grab; outline: 2px solid var(--alid-accent, #008FF0); outline-offset: -2px; }',
         '[data-role="white-map-mount"][data-map-exploring="true"] [data-map-drag] { cursor: inherit; pointer-events: none; }',
       ].join('\n');
       (doc.head ?? doc.documentElement)?.appendChild?.(style);

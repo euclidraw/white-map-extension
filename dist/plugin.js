@@ -20,7 +20,7 @@ import { createRoot } from "react-dom/client";
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.2.1",
+	version: "0.2.2",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 고해상도 10m 스냅샷 베이크를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -122749,7 +122749,7 @@ function ensureDocumentCss(doc) {
 			style.textContent = [
 				cmuFontCss,
 				"[data-role=\"white-map-mount\"] [data-map-drag] { cursor: grab; touch-action: none; user-select: none; }",
-				"[data-role=\"white-map-mount\"][data-map-exploring=\"true\"] { cursor: grab; outline: 2px solid var(--alid-accent, #2563eb); outline-offset: -2px; }",
+				"[data-role=\"white-map-mount\"][data-map-exploring=\"true\"] { cursor: grab; outline: 2px solid var(--alid-accent, #008FF0); outline-offset: -2px; }",
 				"[data-role=\"white-map-mount\"][data-map-exploring=\"true\"] [data-map-drag] { cursor: inherit; pointer-events: none; }"
 			].join("\n");
 			(doc.head ?? doc.documentElement)?.appendChild?.(style);
@@ -123883,7 +123883,7 @@ function mountMapGizmos(context, actions) {
 						top: "0",
 						boxSizing: "border-box",
 						border: "1px dashed currentColor",
-						color: "var(--alid-accent, #2563eb)",
+						color: "var(--alid-accent, #008FF0)",
 						pointerEvents: "none",
 						transformOrigin: "center"
 					});
@@ -123903,8 +123903,8 @@ function mountMapGizmos(context, actions) {
 						placeItems: "center",
 						borderRadius: "4px",
 						border: "1px solid #ffffff",
-						background: "var(--alid-accent, #2563eb)",
-						color: "#ffffff",
+						background: "var(--alid-accent, #008FF0)",
+						color: "var(--alid-accent-contrast, #ffffff)",
 						pointerEvents: "auto",
 						touchAction: "none",
 						userSelect: "none",
@@ -124098,27 +124098,35 @@ function mountMapGizmos(context, actions) {
 var NS = "http://www.w3.org/2000/svg";
 var TOOLBAR_STYLE = `
 .wm-toolbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;
-  max-width:calc(100% - 24px);pointer-events:none;z-index:30;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
+  max-width:calc(100% - 24px);pointer-events:none;font:12px/1.4 var(--alid-font,system-ui,sans-serif);color:var(--alid-text,#18181b)}
 .wm-toolbar[hidden]{display:none}
 .wm-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px;border:1px solid var(--alid-border-subtle,#e4e4e7);
-  border-radius:8px;background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
+  border-radius:var(--alid-radius,8px);background:var(--alid-bg-surface,#fff);box-shadow:0 4px 16px #0000000d,0 1px 3px #0000000a;pointer-events:auto}
 .wm-toolbar button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 5px;border:0;border-radius:5px;
-  background:transparent;color:inherit;font:inherit;cursor:pointer}
+  background:transparent;color:var(--alid-text-secondary,inherit);font:inherit;cursor:pointer}
 .wm-toolbar .wm-tooltip{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;white-space:nowrap;
   padding:5px 8px;border:1px solid var(--alid-border-subtle,#e4e4e7);border-radius:5px;background:var(--alid-bg-surface,#fff);color:var(--alid-text,#18181b);
   box-shadow:0 4px 16px #0000001a;font:12px/1.4 var(--alid-font,system-ui,sans-serif)}
 .wm-toolbar button:hover .wm-tooltip,.wm-toolbar button:focus-visible .wm-tooltip{display:block}
-.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5)}
-.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#eeeeff);color:var(--alid-accent,#2563eb)}
-.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#2563eb);outline-offset:1px}
+.wm-toolbar button:hover{background:var(--alid-bg-muted,#f4f4f5);color:var(--alid-text,#18181b)}
+.wm-toolbar button[aria-pressed="true"]{background:var(--alid-accent-soft,#e5f4fe);color:var(--alid-accent,#008FF0)}
+.wm-toolbar button:focus-visible{outline:2px solid var(--alid-accent,#008FF0);outline-offset:1px}
 .wm-toolbar .wm-sep{width:1px;height:18px;margin:0 3px;background:var(--alid-border-subtle,#e4e4e7)}
-.wm-toolbar .wm-step{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-radius:8px;background:var(--alid-text,#18181b);
-  color:var(--alid-bg-surface,#fff);pointer-events:auto;box-shadow:0 4px 16px #0000001f;white-space:nowrap}
+.wm-toolbar .wm-step{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:var(--alid-radius,8px);background:var(--alid-text,#18181b);
+  color:var(--alid-bg-surface,#fff);pointer-events:auto;white-space:nowrap}
 .wm-toolbar .wm-step[hidden]{display:none}
-.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:#ffffff1f;color:inherit;font-size:11.5px}
-.wm-toolbar .wm-step button:hover{background:#ffffff33}
-.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#2563eb);color:#fff}
+.wm-toolbar .wm-step button{height:24px;padding:0 8px;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
+.wm-toolbar .wm-step button:hover{background:color-mix(in srgb,currentColor 24%,transparent);color:inherit}
+.wm-toolbar .wm-step button[data-active="true"]{background:var(--alid-accent,#008FF0);color:var(--alid-accent-contrast,#fff)}
 .wm-toolbar .wm-step button:disabled{opacity:.45;cursor:default}
+.wm-toolbar kbd{font:inherit;opacity:.55}
+.wm-prompt{position:absolute;display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:var(--alid-radius-small,6px);
+  background:var(--alid-bg-surface,#fff);border:1px solid var(--alid-accent,#008FF0);box-shadow:0 4px 16px #0000001a;
+  color:var(--alid-text,#18181b);font:12px/1.4 var(--alid-font,system-ui,sans-serif);pointer-events:auto;z-index:40}
+.wm-prompt input{width:136px;border:0;outline:none;background:transparent;color:inherit;font:inherit}
+.wm-prompt button{height:24px;padding:0 8px;border:0;border-radius:var(--alid-control-radius,4px);background:var(--alid-accent,#008FF0);
+  color:var(--alid-accent-contrast,#fff);font:inherit;font-size:11px;font-weight:500;cursor:pointer}
+.wm-prompt button:hover{background:var(--alid-accent-hover,#0077cc)}
 `;
 var ICONS = {
 	select: ["m5 3 12 9-6 1-3 6z"],
@@ -124424,38 +124432,20 @@ function mountMapMenubar(context, actions) {
 		if (!hud || !doc) return;
 		const hb = hud.getBoundingClientRect();
 		const wrap = doc.createElement("div");
-		wrap.dataset.canvasUi = "true";
+		wrap.className = "wm-prompt";
+		wrap.dataset.canvasUi = "";
 		wrap.dataset.escapeOwner = "true";
 		wrap.dataset.wmAnnotationPrompt = "true";
+		const theme = doc.documentElement?.dataset?.alidTheme;
+		if (theme === "light" || theme === "dark") wrap.dataset.alidTheme = theme;
 		const px = Math.max(8, Math.min(Math.max(8, hb.width - 210), Math.round(clientX - hb.left + 10)));
 		const py = Math.max(52, Math.min(Math.max(52, hb.height - 40), Math.round(clientY - hb.top - 16)));
-		Object.assign(wrap.style, {
-			position: "absolute",
-			left: `${px}px`,
-			top: `${py}px`,
-			display: "inline-flex",
-			alignItems: "center",
-			gap: "4px",
-			padding: "4px 6px",
-			borderRadius: "6px",
-			background: "var(--alid-bg-surface, #ffffff)",
-			border: "1.5px solid var(--alid-accent, #2563eb)",
-			boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
-			pointerEvents: "auto",
-			zIndex: "40"
-		});
+		wrap.style.left = `${px}px`;
+		wrap.style.top = `${py}px`;
 		const input = doc.createElement("input");
 		input.type = "text";
 		input.placeholder = "지명 입력 후 Enter";
 		input.dataset.canvasEditor = "true";
-		Object.assign(input.style, {
-			width: "132px",
-			fontSize: "12px",
-			border: "none",
-			outline: "none",
-			background: "transparent",
-			color: "var(--alid-text, #18181b)"
-		});
 		let composing = false;
 		input.addEventListener("compositionstart", () => {
 			composing = true;
@@ -124493,16 +124483,6 @@ function mountMapMenubar(context, actions) {
 		const okBtn = doc.createElement("button");
 		okBtn.type = "button";
 		okBtn.textContent = "추가";
-		Object.assign(okBtn.style, {
-			padding: "2px 7px",
-			borderRadius: "4px",
-			border: "none",
-			background: "var(--alid-accent, #2563eb)",
-			color: "#ffffff",
-			fontSize: "11px",
-			fontWeight: "600",
-			cursor: "pointer"
-		});
 		okBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			commit();
@@ -124872,8 +124852,8 @@ var btnStyle = (primary = false) => ({
 	padding: "5px 8px",
 	borderRadius: "6px",
 	border: primary ? "none" : "1px solid var(--alid-border-subtle, #d4d4d8)",
-	background: primary ? "#2563eb" : "transparent",
-	color: primary ? "#ffffff" : "inherit",
+	background: primary ? "var(--alid-accent, #008FF0)" : "transparent",
+	color: primary ? "var(--alid-accent-contrast, #ffffff)" : "inherit",
 	fontSize: "11px",
 	fontWeight: primary ? 600 : 500,
 	cursor: "pointer"
@@ -125086,8 +125066,8 @@ function WhiteMapStudioView({ context }) {
 				textAlign: "left",
 				padding: "5px 7px",
 				borderRadius: "6px",
-				border: isActive ? "1.5px solid #2563eb" : "1px solid var(--alid-border-subtle, #e4e4e7)",
-				background: isActive ? "rgba(37,99,235,0.08)" : "var(--alid-bg-surface, #ffffff)",
+				border: isActive ? "1.5px solid var(--alid-accent, #008FF0)" : "1px solid var(--alid-border-subtle, #e4e4e7)",
+				background: isActive ? "var(--alid-accent-soft, #e5f4fe)" : "var(--alid-bg-surface, #ffffff)",
 				color: "inherit",
 				fontSize: "11px",
 				cursor: "pointer"
@@ -125579,7 +125559,7 @@ var MAP_ICON = Object.freeze({ paths: Object.freeze([
 	"M8 3v12",
 	"M14 5v12"
 ]) });
-var LABEL_ICON = Object.freeze({ paths: Object.freeze([
+Object.freeze({ paths: Object.freeze([
 	"M3 16l5-5h9",
 	"M11 4h6",
 	"M14 4v5"
@@ -125661,36 +125641,9 @@ var whiteMapAspect = Object.freeze({
 			{
 				id: "white-map.explore.selection",
 				kind: "action",
-				label: "지도 탐색",
+				label: "지도 안쪽 탐색",
 				icon: MAP_ICON,
 				commandSymbol: `${EXTENSION_ID}:explore-map`,
-				placement: "selection-bar",
-				requiresSelection: true
-			},
-			{
-				id: "white-map.annotate.selection",
-				kind: "action",
-				label: "지시선 라벨",
-				icon: LABEL_ICON,
-				commandSymbol: `${EXTENSION_ID}:start-tool`,
-				params: { mode: "annotation" },
-				placement: "selection-bar",
-				requiresSelection: true
-			},
-			{
-				id: "white-map.preset.selection",
-				kind: "segmented",
-				field: "stylePreset",
-				label: "인쇄 스타일",
-				placement: "selection-bar",
-				options: QUICK_PRESET_OPTIONS
-			},
-			{
-				id: "white-map.bake.selection",
-				kind: "action",
-				label: "10m 베이크",
-				icon: MAP_ICON,
-				commandSymbol: `${EXTENSION_ID}:bake-high-res`,
 				placement: "selection-bar",
 				requiresSelection: true
 			},
