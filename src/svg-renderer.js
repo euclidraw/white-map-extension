@@ -385,7 +385,7 @@ export function renderMapSvg(props, derived, entityId = 'white-map') {
       ? `<text x="${lx}" y="${ly}" dy="0.35em" text-anchor="${anchor}" font-size="12" font-weight="500" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round">${escapeXml(ann.text)}</text>`
       : '';
     annotationParts.push(
-      `<g data-map-drag="annotation:${escapeXml(ann.id)}">` +
+      `<g data-map-drag="annotation:${escapeXml(ann.id)}" data-ann-id="${escapeXml(ann.id)}" data-ann-ax="${ax}" data-ann-ay="${ay}" data-ann-lx="${lx}" data-ann-ly="${ly}">` +
       leader + halo +
       `<text x="${lx}" y="${ly}" dy="0.35em" text-anchor="${anchor}" font-size="12" font-weight="500" fill="${escapeXml(style.ink)}">${escapeXml(ann.text)}</text>` +
       `</g>`,

@@ -19,7 +19,8 @@ const ALLOWED_ATTRS = new Set((
   'textLength lengthAdjust text-anchor dominant-baseline font-family font-size font-weight font-style letter-spacing ' +
   'patternUnits patternContentUnits patternTransform clipPathUnits href aria-hidden ' +
   'data-white-map data-map-region data-map-preset data-map-resolution data-map-layer data-map-highlight ' +
-  'data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field data-map-pan-layer'
+  'data-custom-layer data-map-drag data-map-box-frame data-map-neatline data-map-field data-map-pan-layer ' +
+  'data-ann-id data-ann-ax data-ann-ay data-ann-lx data-ann-ly'
 ).split(' '));
 const IRI_ATTRS = new Set(['fill', 'stroke', 'clip-path', 'mask']);
 
@@ -81,6 +82,7 @@ export function createVectorSvgNode(doc, innerMarkup, width, height, title) {
 export function paintMountVector(mountEl, props, width, height, entityId) {
   const doc = mountEl?.ownerDocument;
   if (!doc) return null;
+  const draftOverlay = mountEl.querySelector?.('[data-wm-draft-overlay="true"]') ?? null;
   const { svg, meta } = renderMapSvg(props, { x: 0, y: 0, width, height, rotation: 0 }, entityId);
   if (doc.defaultView?.DOMParser) {
     const svgNode = createVectorSvgNode(doc, svg, width, height, props?.title || '수능 백지도');
@@ -88,6 +90,7 @@ export function paintMountVector(mountEl, props, width, height, entityId) {
   } else {
     mountEl.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="${NS}">${svg}</svg>`;
   }
+  if (draftOverlay) mountEl.appendChild(draftOverlay);
   return meta;
 }
 

@@ -69,7 +69,7 @@
       "defaultValue": true
     }
   ],
-  "version": "0.3.1",
+  "version": "0.4.0",
   "engine": "^0.1.1",
   "dependencies": {},
   "optionalDependencies": {},
@@ -84,7 +84,7 @@
   "title": "수능 백지도",
   "summary": "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 현재 화면 범위의 상세 벡터 타일 로딩를 제공하는 확장",
   "entry": "dist/plugin.js",
-  "sha256": "b1888a6ca1e1f7b4cd5a217df58cd5e75de44241950051335b78ca535097a904",
+  "sha256": "18dd4ff98efb551d132f3dad2ca2c12008ac2288c6dcc488dce32f4009b4e3e0",
   "aspectIds": [
     "diagram.white-map.map"
   ],
@@ -115,13 +115,17 @@
       "diagram.white-map:update-viewport",
       "diagram.white-map:toggle-layer",
       "diagram.white-map:toggle-highlight",
+      "diagram.white-map:update-highlight",
       "diagram.white-map:add-custom-layer",
+      "diagram.white-map:update-custom-layer",
       "diagram.white-map:remove-custom-layer",
       "diagram.white-map:add-annotation",
+      "diagram.white-map:update-annotation",
       "diagram.white-map:remove-annotation",
       "diagram.white-map:remove-highlight",
       "diagram.white-map:add-custom-point",
       "diagram.white-map:start-tool",
+      "diagram.white-map:toggle-auto-detail",
       "diagram.white-map:bake-high-res",
       "diagram.white-map:clear-baked",
       "diagram.white-map:reset-viewport"

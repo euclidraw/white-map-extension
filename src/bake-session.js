@@ -2,7 +2,18 @@ import {isDeepZoomScale} from './gis-base.js';
 import {clearVectorTiles, fetchViewport, tilePlan} from './vector-tiles.js';
 
 // One assembled viewport per tile range, shared by canvas and synchronous SVG export.
-const entries = new Map(), pending = new Map();
+const entries = new Map(), pending = new Map(), listeners = new Set();
+function notify() {
+  const active = pending.size > 0;
+  for (const fn of listeners) {
+    try { fn(active); } catch {}
+  }
+}
+export function isBakeLoading() { return pending.size > 0; }
+export function subscribeBakeLoading(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 export const bakeKey = (bbox,scale) => isDeepZoomScale(scale) ? tilePlan(bbox,scale)?.key : null;
 export function cachedBake(bbox,scale) { return entries.get(bakeKey(bbox,scale)) ?? null; }
 export function loadBake(bbox,scale,_layers,fetcher) {
@@ -16,7 +27,20 @@ export function loadBake(bbox,scale,_layers,fetcher) {
     entries.set(key,detail);
     if(entries.size>3)entries.delete(entries.keys().next().value);
     return detail;
-  }).finally(()=>{if(pending.get(key)?.controller===controller)pending.delete(key);});
-  pending.set(key,{controller,promise});return promise;
+  }).finally(()=>{
+    if(pending.get(key)?.controller===controller){
+      pending.delete(key);
+      notify();
+    }
+  });
+  pending.set(key,{controller,promise});
+  notify();
+  return promise;
 }
-export function clearBakeSession(){for(const {controller} of pending.values())controller.abort();pending.clear();entries.clear();clearVectorTiles();}
+export function clearBakeSession(){
+  for(const {controller} of pending.values())controller.abort();
+  pending.clear();
+  entries.clear();
+  clearVectorTiles();
+  notify();
+}

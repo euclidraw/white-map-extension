@@ -159,6 +159,7 @@ export function hitTestAdminFeature(lon, lat, level = 'admin0', bakedDetail = nu
           level,
           code: String(feat.properties?.code ?? feat.id ?? ''),
           name: feat.properties?.nameKo || feat.properties?.name || String(feat.id ?? ''),
+          feature: feat,
         };
       }
     } catch {
@@ -168,8 +169,14 @@ export function hitTestAdminFeature(lon, lat, level = 'admin0', bakedDetail = nu
   return null;
 }
 
-// Korean district picking takes precedence only on a real district hit.
-export function pickAdmin(lon, lat, layers, detail) {
+// Korean district picking takes precedence only on a real district hit unless a target level is explicitly chosen.
+export function pickAdmin(lon, lat, layers, detail, preferredLevel = 'auto') {
+  if (preferredLevel && preferredLevel !== 'auto') {
+    if ((preferredLevel === 'kr-sido' || preferredLevel === 'kr-sgg') && (lon < 124 || lon > 132 || lat < 32 || lat > 39)) {
+      return null;
+    }
+    return hitTestAdminFeature(lon, lat, preferredLevel, detail);
+  }
   if ((layers.krDistricts || layers.krProvinces) && lon >= 124 && lon <= 132 && lat >= 32 && lat <= 39) {
     const district = hitTestAdminFeature(lon, lat, layers.krDistricts ? 'kr-sgg' : 'kr-sido');
     if (district) return district;

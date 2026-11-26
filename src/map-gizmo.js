@@ -1,11 +1,31 @@
+import { frameLayout } from './frame-layout.js';
 import { MAP_ASPECT_ID } from './manifest.js';
-import { normalizeOffset } from './model.js';
+import { DEFAULT_MAP_HEIGHT, DEFAULT_MAP_WIDTH, resolveMapSpec } from './model.js';
 
 const DRAG_SELECTOR = '[data-map-drag]';
 
+function framePointToHud(mount, svg, frameX, frameY, px, py, hudRect, mapW, mapH) {
+  const x = frameX + px;
+  const y = frameY + py;
+  const m = svg?.getScreenCTM?.();
+  if (m) {
+    return {
+      x: m.a * x + m.c * y + m.e - hudRect.left,
+      y: m.b * x + m.d * y + m.f - hudRect.top,
+    };
+  }
+  const svgRect = svg?.getBoundingClientRect?.();
+  const r = svgRect?.width && svgRect?.height ? svgRect : mount.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return {
+    x: r.left + (x / mapW) * r.width - hudRect.left,
+    y: r.top + (y / mapH) * r.height - hudRect.top,
+  };
+}
+
 /**
  * Renders selection-space dashed rubber-band outlines and 4-way move gizmos on
- * legend boxes & inset locator maps, and enables dragging legend, inset, and leader-line labels.
+ * legend boxes & inset locator maps, plus anchor/label handles on leader-line annotations.
  */
 export function mountMapGizmos(context, actions) {
   const provider = context?.services?.get?.('canvas.active-tool-surface');
@@ -19,7 +39,7 @@ export function mountMapGizmos(context, actions) {
 
   function clearOverlays() {
     for (const { band, handle } of overlays.values()) {
-      band.remove();
+      band?.remove();
       handle.remove();
     }
     overlays.clear();
@@ -119,11 +139,81 @@ export function mountMapGizmos(context, actions) {
         const hy = Math.max(0, Math.min(Math.max(0, hudRect.height - 20), top - 10));
         entry.handle.style.transform = `translate(${hx}px,${hy}px)`;
       }
+
+      // Leader-line annotation anchor & label endpoint handles
+      const svg = mount.querySelector('svg');
+      const props = context.world.getCanonical?.(id, MAP_ASPECT_ID);
+      const bounds = context.world.getCanonical?.(id, 'core.bounds');
+      const mapW = bounds?.width || DEFAULT_MAP_WIDTH;
+      const mapH = bounds?.height || DEFAULT_MAP_HEIGHT;
+      const resolved = props ? resolveMapSpec(props) : null;
+      const { frameX, frameY } = frameLayout(mapW, mapH, resolved || {});
+
+      for (const annGroup of mount.querySelectorAll('[data-map-drag^="annotation:"]')) {
+        const annId = annGroup.dataset.annId;
+        const baseAx = Number(annGroup.dataset.annAx);
+        const baseAy = Number(annGroup.dataset.annAy);
+        const baseLx = Number(annGroup.dataset.annLx);
+        const baseLy = Number(annGroup.dataset.annLy);
+        if (!annId || !Number.isFinite(baseAx) || !Number.isFinite(baseAy) || !Number.isFinite(baseLx) || !Number.isFinite(baseLy)) {
+          continue;
+        }
+        const draggingAnchor = drag?.id === id && drag.kind === `ann-anchor:${annId}`;
+        const draggingLabel = drag?.id === id && (drag.kind === `annotation:${annId}` || drag.kind === `ann-label:${annId}`);
+        const ax = draggingAnchor ? baseAx + drag.dx : baseAx;
+        const ay = draggingAnchor ? baseAy + drag.dy : baseAy;
+        const lx = draggingLabel ? baseLx + drag.dx : baseLx;
+        const ly = draggingLabel ? baseLy + drag.dy : baseLy;
+
+        const anchorHud = framePointToHud(mount, svg, frameX, frameY, ax, ay, hudRect, mapW, mapH);
+        const labelHud = framePointToHud(mount, svg, frameX, frameY, lx, ly, hudRect, mapW, mapH);
+        if (!anchorHud || !labelHud) continue;
+        const labelShift = Math.hypot(labelHud.x - anchorHud.x, labelHud.y - anchorHud.y) < 8 ? 10 : 0;
+
+        for (const [role, pt, isAnchor] of [
+          [`ann-anchor:${annId}`, anchorHud, true],
+          [`ann-label:${annId}`, { x: labelHud.x + labelShift, y: labelHud.y }, false],
+        ]) {
+          if (pt.x < -8 || pt.x > hudRect.width + 8 || pt.y < -8 || pt.y > hudRect.height + 8) continue;
+          const key = JSON.stringify([id, role]);
+          seen.add(key);
+          let entry = overlays.get(key);
+          if (!entry) {
+            const handle = activeHud.ownerDocument.createElement('span');
+            handle.dataset.wmGizmo = isAnchor ? 'ann-anchor' : 'ann-label';
+            handle.dataset.wmAnnId = annId;
+            handle.dataset.canvasUi = 'true';
+            handle.title = isAnchor
+              ? '드래그하여 지시선 기준점 이동'
+              : '드래그하여 라벨 위치 이동 · 더블클릭하여 텍스트 수정';
+            Object.assign(handle.style, {
+              position: 'absolute',
+              left: '0',
+              top: '0',
+              boxSizing: 'border-box',
+              width: '10px',
+              height: '10px',
+              borderRadius: '999px',
+              border: isAnchor ? '2px solid var(--alid-accent, #008FF0)' : '1.5px solid #ffffff',
+              background: isAnchor ? '#ffffff' : 'var(--alid-accent, #008FF0)',
+              pointerEvents: 'auto',
+              touchAction: 'none',
+              userSelect: 'none',
+              cursor: isAnchor ? 'crosshair' : 'grab',
+            });
+            entry = { band: null, handle };
+            overlays.set(key, entry);
+            activeHud.append(handle);
+          }
+          handleToTarget.set(entry.handle, { id, kind: role, targetEl: annGroup });
+          entry.handle.style.transform = `translate(${Math.round(pt.x - 5)}px,${Math.round(pt.y - 5)}px)`;
+        }
+      }
     }
 
     for (const [key, entry] of overlays) {
       if (!seen.has(key)) {
-        entry.band.remove();
+        entry.band?.remove();
         entry.handle.remove();
         overlays.delete(key);
       }
@@ -140,16 +230,49 @@ export function mountMapGizmos(context, actions) {
     }
   }
 
+  function resetPreviewTransform(d) {
+    d.el.style.translate = d.oldTranslate;
+    if (d.lineEl) {
+      if (d.oldX1 != null) d.lineEl.setAttribute('x1', d.oldX1);
+      if (d.oldY1 != null) d.lineEl.setAttribute('y1', d.oldY1);
+      if (d.oldX2 != null) d.lineEl.setAttribute('x2', d.oldX2);
+      if (d.oldY2 != null) d.lineEl.setAttribute('y2', d.oldY2);
+    }
+    if (d.textEls) {
+      for (const [el, prev] of d.textEls) el.style.translate = prev;
+    }
+  }
+
+  function applyPreviewTransform(d) {
+    if (d.kind.startsWith('ann-anchor:')) {
+      if (d.lineEl && Number.isFinite(d.baseAx) && Number.isFinite(d.baseAy)) {
+        d.lineEl.setAttribute('x1', String(d.baseAx + d.dx));
+        d.lineEl.setAttribute('y1', String(d.baseAy + d.dy));
+      }
+      return;
+    }
+    if ((d.kind.startsWith('annotation:') || d.kind.startsWith('ann-label:')) && d.lineEl && d.textEls?.length) {
+      d.lineEl.setAttribute('x2', String(d.baseLx + d.dx));
+      d.lineEl.setAttribute('y2', String(d.baseLy + d.dy));
+      for (const [el] of d.textEls) el.style.translate = `${d.dx}px ${d.dy}px`;
+      return;
+    }
+    d.el.style.translate = `${d.dx}px ${d.dy}px`;
+  }
+
   function stopDrag(save) {
     if (!drag) return;
     const d = drag;
     drag = null;
-    d.el.style.translate = d.oldTranslate;
+    resetPreviewTransform(d);
     if (d.captured && surface?.hasPointerCapture?.(d.pointerId)) {
       try { surface.releasePointerCapture(d.pointerId); } catch {}
     }
     if (save && d.moved && !context.world.isEntityReadOnly?.(d.id)) {
-      actions.commitDragOffset(d.id, d.kind, d.dx, d.dy);
+      const commitKind = d.kind.startsWith('ann-label:')
+        ? `annotation:${d.kind.slice('ann-label:'.length)}`
+        : d.kind;
+      actions.commitDragOffset(d.id, commitKind, d.dx, d.dy);
     }
     schedule();
   }
@@ -189,10 +312,22 @@ export function mountMapGizmos(context, actions) {
           y: (-Math.sin(rotation) * x + Math.cos(rotation) * y) / zoom,
         });
 
+    const lineEl = targetEl.querySelector?.('line') ?? null;
+    const textEls = [...(targetEl.querySelectorAll?.('text') ?? [])].map(el => [el, el.style.translate]);
     drag = {
       id,
       kind,
       el: targetEl,
+      lineEl,
+      textEls,
+      baseAx: Number(targetEl.dataset?.annAx),
+      baseAy: Number(targetEl.dataset?.annAy),
+      baseLx: Number(targetEl.dataset?.annLx),
+      baseLy: Number(targetEl.dataset?.annLy),
+      oldX1: lineEl?.getAttribute('x1') ?? null,
+      oldY1: lineEl?.getAttribute('y1') ?? null,
+      oldX2: lineEl?.getAttribute('x2') ?? null,
+      oldY2: lineEl?.getAttribute('y2') ?? null,
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
@@ -222,7 +357,7 @@ export function mountMapGizmos(context, actions) {
     const delta = d.localDelta(sx, sy);
     d.dx = Math.round(delta.x);
     d.dy = Math.round(delta.y);
-    d.el.style.translate = `${d.dx}px ${d.dy}px`;
+    applyPreviewTransform(d);
     schedule();
     e.preventDefault();
     e.stopPropagation();

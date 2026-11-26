@@ -215,6 +215,7 @@ export function resolveMapSpec(rawProps = {}) {
     ? rawProps.highlights
         .filter(h => isRecord(h) && Array.isArray(h.codes) && h.codes.length > 0)
         .map(h => ({
+          ...(typeof h.slotId === 'string' && h.slotId ? { slotId: h.slotId } : {}),
           level: ['admin1','kr-sido','kr-sgg'].includes(h.level) ? h.level : 'admin0',
           codes: h.codes.map(c => String(c).trim()).filter(Boolean),
           fill: typeof h.fill === 'string' && h.fill ? h.fill : style.highlight,
@@ -254,9 +255,14 @@ export function resolveMapSpec(rawProps = {}) {
 
   const legendRaw = isRecord(rawProps.legend) ? rawProps.legend : {};
   const autoLegendItems = [];
+  const seenHighlightLegend = new Set();
   for (const h of highlights) {
     if (h.legendLabel) {
-      autoLegendItems.push({ kind: 'polygon', label: h.legendLabel, fill: h.fill, pattern: h.pattern });
+      const key = `${h.legendLabel}\u0000${h.fill}\u0000${h.pattern}`;
+      if (!seenHighlightLegend.has(key)) {
+        seenHighlightLegend.add(key);
+        autoLegendItems.push({ kind: 'polygon', label: h.legendLabel, fill: h.fill, pattern: h.pattern });
+      }
     }
   }
   for (const layer of customLayers) {
