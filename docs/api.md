@@ -26,14 +26,14 @@
 
 ## 2. Props 패널 · 지도 탭 · 가로 Hover Tooltip 툴바
 
-- **속성(Props) 패널 (`placement: 'inspector'`)**: 제목, 투영법, 중심 경위도·배율·경도 회전, 상세 타일/초기화, 기본 레이어 토글(해안선·국경·성/도·하천·호수·적도/격자), 범례·위치 소지도 토글 및 모서리 위치, 수능 인쇄 프리셋·바다/육지/강조/먹선 색상·해안선 굵기·국경 선종·서체·커스텀 CSS를 네이티브 필드로 제공합니다.
-- **수능 백지도 탭 패널 (`diagram.white-map.studio`)**: 수능 백지도 5종 예제 템플릿, 12종 지역 프리셋 검색, GeoJSON/TopoJSON/CSV 커스텀 GIS 임포트 및 레이어·강조·라벨 목록 관리, 멀티라인 `--map-*` CSS 편집기에 집중합니다.
-- **화면 상단 고정 Hover Tooltip 툴바 (`src/map-menubar.js`)**: 백지도를 선택하거나 탐색 중일 때 `alid-stem-extensions`와 동일하게 화면 상단 중앙(`left: 50%; top: 12px`)에 고정되는 가로 도구 막대가 나타납니다. 각 아이콘 버튼 아래로 호버 툴팁이 표시되며, 활성 도구·탐색 상태는 바로 아래 상태 행(`.stem-step`)에 표시됩니다. **선택·이동**, **지도 탐색**, **지시선 라벨 추가(지도 클릭 후 인라인 입력)**, **지점 마커 배치**, **경로 선 그리기(단선/이중선)**, **지역 강조 클릭**, **국경·하천·범례·인셋 토글**, **상세 타일**를 즉시 실행할 수 있습니다.
+- **속성(Props) 패널 (`placement: 'inspector'`)**: 자주 쓰는 **수능 인쇄 스타일 · 기본 레이어(자동 상세 타일 포함) · 범례/위치 소지도** 섹션을 상단에 펼쳐 배치하고, **시점 · 좌표 미세조정 · 세부 색상 · 고급 CSS** 섹션은 기본 접힘(`sectionCollapsed: true`)으로 제공합니다.
+- **수능 백지도 탭 패널 (`diagram.white-map.studio`)**: 수능 백지도 5종 예제 템플릿(작업 내역 덮어쓰기 보호 포함), 12종 지역 프리셋 검색, `.geojson`/`.topojson`/`.csv` 파일 드롭·선택 및 텍스트 GIS 임포트, 레이어·강조·지시선 라벨 인라인 수정, 멀티라인 `--map-*` CSS 편집기에 집중합니다.
+- **화면 상단 고정 Hover Tooltip 툴바 (`src/map-menubar.js`)**: 백지도를 선택하거나 탐색 중일 때 `alid-stem-extensions`와 동일하게 화면 상단 중앙(`left: 50%; top: 12px`)에 고정되는 가로 도구 막대가 나타납니다. **선택·이동**, **지도 탐색**, **지역 강조(A/B/C/D 슬롯 · 단위 선택 · 호버 윤곽선 미리보기)**, **지시선 라벨 추가/더블클릭 수정**, **지점 마커 배치**, **경로 그리기·분포 영역 다각형 그리기(실시간 고스트 미리보기 · `Backspace` 한 점 취소)**, **국경·하천·범례·인셋 토글**, **자동 상세화(Auto-LOD) 토글**을 즉시 실행할 수 있습니다.
 
 ## 3. 인터랙션
 
 - **더블클릭 지도 탐색**: 지도 프레임 내부를 더블클릭하면 `data-canvas-ui="true"`와 `data-escape-owner="true"`가 활성화되어 드래그(팬)와 휠(커서 기준 줌)이 지도 내부 탐색으로 전환됩니다. `Esc` 또는 바깥 클릭 시 최종 `viewport`가 한 번의 Undo 그룹으로 저장됩니다.
-- **러버 밴드 & 이동 기즈모**: 백지도를 선택하면 범례 박스와 위치 소지도 인셋에 점선 러버 밴드와 이동 기즈모가 표시됩니다. 드래그로 위치를 조정할 수 있고 내보낸 SVG에 그대로 반영됩니다.
+- **러버 밴드 · 기즈모 · 지시선 양끝 핸들**: 백지도를 선택하면 범례 박스와 위치 소지도 인셋에 점선 러버 밴드와 이동 기즈모가 표시되고, 지시선 라벨에는 기준점(`ann-anchor`)과 라벨 끝점(`ann-label`) 핸들이 함께 표시됩니다. 라벨 더블클릭 시 한글 조합(IME) 안전 인라인 입력창으로 텍스트를 바로 수정할 수 있습니다.
 
 ## 4. 명령 (`commands`)
 
@@ -45,9 +45,17 @@
 - `diagram.white-map:update-viewport`
 - `diagram.white-map:toggle-layer`
 - `diagram.white-map:toggle-highlight`
+- `diagram.white-map:update-highlight`
+- `diagram.white-map:remove-highlight`
 - `diagram.white-map:add-custom-layer`
+- `diagram.white-map:update-custom-layer`
 - `diagram.white-map:remove-custom-layer`
+- `diagram.white-map:add-custom-point`
 - `diagram.white-map:add-annotation`
+- `diagram.white-map:update-annotation`
+- `diagram.white-map:remove-annotation`
+- `diagram.white-map:start-tool`
+- `diagram.white-map:toggle-auto-detail`
 - `diagram.white-map:bake-high-res`
 - `diagram.white-map:clear-baked`
 - `diagram.white-map:reset-viewport`
