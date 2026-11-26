@@ -494,6 +494,10 @@ test('UX 6: Props Inspector contributes an inspectorFor legend item editor that 
 
     const rows = studioHost.querySelectorAll('[data-wm-legend-item-row]');
     assert.equal(rows.length, 3, 'csat-world-env exposes A, B, C legend items in Props');
+    assert.ok(studioHost.querySelector('style')?.textContent.includes('.wm-dial-row'), 'DialKit-matched CSS is injected');
+    assert.ok(rows[0].classList.contains('wm-dial-row'));
+    assert.ok(rows[0].querySelector('.wm-dial-input'));
+    assert.equal(rows[0].querySelector('.wm-dial-switch')?.getAttribute('data-checked'), 'true');
 
     // Rename item 1 ('A') -> '(가) 사막화 위험'
     const firstInput = rows[0].querySelector('input[type="text"]');

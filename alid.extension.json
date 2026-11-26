@@ -69,7 +69,7 @@
       "defaultValue": true
     }
   ],
-  "version": "0.4.1",
+  "version": "0.4.2",
   "engine": "^0.1.1",
   "dependencies": {},
   "optionalDependencies": {},
@@ -84,7 +84,7 @@
   "title": "수능 백지도",
   "summary": "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 현재 화면 범위의 상세 벡터 타일 로딩를 제공하는 확장",
   "entry": "dist/plugin.js",
-  "sha256": "1135a0921c587d8828803135d8c5ca8648b5b7fc0f26520975bdf232d44807bb",
+  "sha256": "27a2bcfea375378960bf3682231afdb584a2cf4116445d0690965eccc6adc7a1",
   "aspectIds": [
     "diagram.white-map.map"
   ],

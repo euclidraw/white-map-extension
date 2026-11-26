@@ -11436,7 +11436,7 @@ function frameLayout(width, height, resolved, detailEnabled = resolved.bakeEnabl
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.4.1",
+	version: "0.4.2",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 현재 화면 범위의 상세 벡터 타일 로딩를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -19756,7 +19756,7 @@ var compactInputStyle = {
 /**
 * IME-safe inline text input that commits on Enter or Blur as a single Undo step.
 */
-function CommitTextInput({ value, placeholder, ariaLabel, allowEmpty = true, onCommit, style }) {
+function CommitTextInput({ id, className, value, placeholder, ariaLabel, allowEmpty = true, onCommit, style }) {
 	const [draft, setDraft] = useState(value ?? "");
 	const composingRef = useRef(false);
 	useEffect(() => {
@@ -19772,11 +19772,13 @@ function CommitTextInput({ value, placeholder, ariaLabel, allowEmpty = true, onC
 		if (next !== (value ?? "")) onCommit(next);
 	};
 	return h("input", {
+		id,
+		className,
 		type: "text",
 		value: draft,
 		placeholder,
 		"aria-label": ariaLabel,
-		style: style || compactInputStyle,
+		style: className ? style : style || compactInputStyle,
 		onChange: (e) => setDraft(e.target.value),
 		onCompositionStart: () => {
 			composingRef.current = true;
@@ -20693,6 +20695,191 @@ function LegendSwatchPreview({ entry }) {
 	}));
 }
 /**
+* DialKit-matched stylesheet so `diagram.white-map.legend-inspector` blends seamlessly
+* with Alid's `.wb-dialkit` rows in both light and dark themes (32px pill rows, 4px gap,
+* borderless inline text editing, and smooth pill switches instead of raw HTML inputs).
+*/
+var LEGEND_INSPECTOR_CSS = `
+.wm-dial-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--alid-font, Inter, Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
+}
+.wm-dial-empty {
+  margin: 2px 2px 0;
+  color: var(--alid-text-muted, #6b6b73);
+  font: 400 11.5px/1.5 var(--alid-font, system-ui, sans-serif);
+}
+.wm-dial-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px 0 10px;
+  border-radius: var(--alid-radius-small, 6px);
+  background: var(--alid-bg-muted, #f4f4f5);
+  color: var(--alid-text-secondary, #52525b);
+  font: 500 12px/1.4 var(--alid-font, system-ui, sans-serif);
+}
+.wm-dial-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--alid-accent-soft, #e5f4fe);
+  color: var(--alid-accent, #008FF0);
+  font: 600 11px/1 var(--alid-font, system-ui, sans-serif);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.wm-dial-btn:hover {
+  background: var(--alid-accent, #008FF0);
+  color: var(--alid-accent-contrast, #ffffff);
+}
+.wm-dial-btn:focus-visible {
+  outline: 2px solid var(--alid-accent, #008FF0);
+  outline-offset: 1px;
+}
+.wm-dial-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: var(--alid-radius-small, 6px);
+  background: var(--alid-bg-muted, #f4f4f5);
+  color: var(--alid-text-secondary, #52525b);
+  font: 500 13px/18px var(--alid-font, system-ui, sans-serif);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.wm-dial-row:hover {
+  background: var(--alid-border-subtle, #e4e4e7);
+  color: var(--alid-text, #18181b);
+}
+.wm-dial-row:focus-within {
+  background: var(--alid-border-strong, #d4d4d8);
+  color: var(--alid-text, #18181b);
+}
+.wm-dial-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  color: inherit;
+}
+.wm-dial-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.14);
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+.wm-dial-row[data-included="false"] .wm-dial-swatch {
+  opacity: 0.45;
+}
+.wm-dial-tag {
+  font: 500 12px/18px var(--alid-font, system-ui, sans-serif);
+  color: inherit;
+  white-space: nowrap;
+}
+.wm-dial-input {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  height: 20px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px 1px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  text-align: right;
+  font: 500 13px/18px var(--alid-font, system-ui, sans-serif);
+  color: var(--alid-text, #18181b);
+  cursor: text;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.wm-dial-row[data-included="false"] .wm-dial-input {
+  color: var(--alid-text-muted, #6b6b73);
+}
+.wm-dial-input::placeholder {
+  color: var(--alid-text-muted, #6b6b73);
+  font-weight: 400;
+}
+.wm-dial-input:focus {
+  color: var(--alid-text, #18181b);
+  border-bottom-color: var(--alid-accent, #008FF0);
+}
+.wm-dial-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.wm-dial-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.wm-dial-switch-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--alid-border-strong, #d4d4d8);
+  transition: background 0.18s ease;
+}
+.wm-dial-switch[data-checked="true"] .wm-dial-switch-track {
+  background: var(--alid-accent, #008FF0);
+}
+.wm-dial-switch-input:focus-visible + .wm-dial-switch-track {
+  outline: 2px solid var(--alid-accent, #008FF0);
+  outline-offset: 1px;
+}
+.wm-dial-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.wm-dial-switch[data-checked="true"] .wm-dial-switch-thumb {
+  transform: translateX(12px);
+}
+`;
+/**
 * Mounted directly inside Alid's native Props (Inspector) panel via `inspectorFor: MAP_ASPECT_ID`
 * so users can rename legend items and toggle per-item legend visibility without leaving Props.
 */
@@ -20717,67 +20904,61 @@ function LegendItemsInspectorView({ context }) {
 	if (!selected || !resolved) return null;
 	const exec = (cmd, args = {}) => context?.executeCommand?.(`${EXTENSION_ID}:${cmd}`, args);
 	if (!entries.length) return h("div", {
-		"data-wm-legend-inspector": "empty",
-		style: {
-			fontSize: "11.5px",
-			color: "var(--alid-text-muted, #71717a)",
-			lineHeight: 1.45
-		}
-	}, "강조 지역·경로·분포 영역·마커를 추가하면 여기서 각 범례 항목의 이름을 바로 수정할 수 있습니다.");
+		className: "wm-dial-list",
+		"data-wm-legend-inspector": "empty"
+	}, h("style", null, LEGEND_INSPECTOR_CSS), h("p", { className: "wm-dial-empty" }, "강조 지역·경로·분포 영역·마커를 추가하면 여기서 각 범례 항목의 이름을 바로 수정할 수 있습니다."));
 	return h("div", {
-		"data-wm-legend-inspector": "true",
-		style: {
-			display: "grid",
-			gap: "6px",
-			fontSize: "11.5px"
-		}
-	}, entries.some((e) => e.included) && !resolved.legend.enabled && h("div", { style: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: "6px",
-		padding: "4px 6px",
-		borderRadius: "5px",
-		background: "var(--alid-bg-muted, #f4f4f5)",
-		fontSize: "11px"
-	} }, h("span", { style: { color: "var(--alid-text-muted, #71717a)" } }, "범례 박스가 숨겨져 있습니다"), h("button", {
+		className: "wm-dial-list",
+		"data-wm-legend-inspector": "true"
+	}, h("style", null, LEGEND_INSPECTOR_CSS), entries.some((e) => e.included) && !resolved.legend.enabled && h("div", { className: "wm-dial-banner" }, h("span", null, "범례 박스가 숨겨져 있습니다"), h("button", {
 		type: "button",
+		className: "wm-dial-btn",
 		"data-wm-enable-legend": "true",
 		onClick: () => void exec("update-style", {
 			entityId: selected.id,
 			showLegend: true
-		}),
-		style: btnStyle(false)
-	}, "범례 표시")), ...entries.map((entry, idx) => h("div", {
-		key: entry.key,
-		"data-wm-legend-item-row": String(idx),
-		style: {
-			display: "grid",
-			gridTemplateColumns: "auto auto 1fr",
-			gap: "6px",
-			alignItems: "center"
-		}
-	}, h("input", {
-		type: "checkbox",
-		"aria-label": "범례 항목 표시",
-		title: "범례 박스에 이 항목 표시",
-		checked: entry.included,
-		onChange: (e) => void exec("update-legend-item", {
-			entityId: selected.id,
-			target: entry.target,
-			included: e.target.checked
 		})
-	}), h(LegendSwatchPreview, { entry }), h(CommitTextInput, {
-		value: entry.label,
-		placeholder: entry.placeholder || `항목 ${idx + 1} 이름`,
-		ariaLabel: `범례 항목 ${idx + 1} 이름`,
-		allowEmpty: true,
-		onCommit: (nextLabel) => void exec("update-legend-item", {
-			entityId: selected.id,
-			target: entry.target,
-			label: nextLabel
-		})
-	}))));
+	}, "범례 표시")), ...entries.map((entry, idx) => {
+		const inputId = `wm-legend-item-${selected.id}-${idx}`;
+		return h("div", {
+			key: entry.key,
+			className: "wm-dial-row",
+			"data-wm-legend-item-row": String(idx),
+			"data-included": String(entry.included)
+		}, h("label", {
+			className: "wm-dial-lead",
+			htmlFor: inputId
+		}, h("span", { className: "wm-dial-swatch" }, h(LegendSwatchPreview, { entry })), h("span", { className: "wm-dial-tag" }, `항목 ${idx + 1}`)), h(CommitTextInput, {
+			id: inputId,
+			className: "wm-dial-input",
+			value: entry.label,
+			placeholder: entry.placeholder || "이름 입력",
+			ariaLabel: `범례 항목 ${idx + 1} 이름`,
+			allowEmpty: true,
+			onCommit: (nextLabel) => void exec("update-legend-item", {
+				entityId: selected.id,
+				target: entry.target,
+				label: nextLabel
+			})
+		}), h("label", {
+			className: "wm-dial-switch",
+			"data-checked": String(entry.included),
+			title: entry.included ? "범례에서 숨기기" : "범례에 표시하기"
+		}, h("input", {
+			type: "checkbox",
+			className: "wm-dial-switch-input",
+			"aria-label": `범례 항목 ${idx + 1} 표시`,
+			checked: entry.included,
+			onChange: (e) => void exec("update-legend-item", {
+				entityId: selected.id,
+				target: entry.target,
+				included: e.target.checked
+			})
+		}), h("span", {
+			className: "wm-dial-switch-track",
+			"aria-hidden": "true"
+		}, h("span", { className: "wm-dial-switch-thumb" }))));
+	}));
 }
 function createLegendInspectorSpec() {
 	return {
