@@ -11,6 +11,7 @@ import { bakeHighResSnapshot } from './gis-cdn.js';
 import {
   COMMAND_NAMES,
   EXTENSION_ID,
+  LEGEND_INSPECTOR_PANEL_ID,
   MAP_ASPECT_ID,
   STUDIO_PANEL_ID,
   createPackageManifest,
@@ -27,12 +28,13 @@ import {
   createMapPropsForRegion,
   createMapPropsFromThematicPreset,
   deriveMapGeometry,
+  listEditableLegendEntries,
   normalizeOffset,
   parseCustomGisInput,
   resolveMapSpec,
   syncFlatFields,
 } from './model.js';
-import { createStudioPanelSpec } from './panel.js';
+import { createLegendInspectorSpec, createStudioPanelSpec } from './panel.js';
 import { MAP_PRINT_PRESETS, parseMapCss, resolveMapStyle } from './print-style.js';
 import { renderMapSvg } from './svg-renderer.js';
 import { planWhiteMapChanges, registerWhiteMapTools } from './tools.js';
@@ -82,6 +84,7 @@ const COMMAND_LABELS = Object.freeze({
   'remove-annotation': '지시선 라벨 삭제',
   'remove-highlight': '강조 그룹 삭제',
   'add-custom-point': '지점 마커 배치',
+  'update-legend-item': '범례 항목 이름·표시 변경',
   'start-tool': '지도 배치 도구 시작',
   'toggle-auto-detail': '자동 상세 타일 토글',
   'bake-high-res': '현재 범위 상세 타일 불러오기',
@@ -463,7 +466,7 @@ const whiteMapAspect = Object.freeze({
         placement: 'inspector',
       },
     ],
-    panels: [createStudioPanelSpec()],
+    panels: [createStudioPanelSpec(), createLegendInspectorSpec()],
   },
 });
 
@@ -510,12 +513,23 @@ function countMaps(world) {
   return n;
 }
 
+function preserveCanonicalLegend(current, resolved, overrides = {}) {
+  const rawItems = Array.isArray(current?.legend?.items) ? current.legend.items : [];
+  return {
+    enabled: resolved.legend.enabled,
+    corner: resolved.legend.corner,
+    offset: resolved.legend.offset,
+    ...overrides,
+    items: overrides.items !== undefined ? overrides.items : rawItems,
+  };
+}
+
 const plugin = {
   ...createPackageManifest(metadata),
   summary: metadata.summary,
   aspects: [whiteMapAspect],
   ui: {
-    panels: [createStudioPanelSpec()],
+    panels: [createStudioPanelSpec(), createLegendInspectorSpec()],
   },
   activate(context) {
     const disposers = [];
@@ -662,11 +676,11 @@ const plugin = {
           patch.inset = { ...resolved.inset, ...args.inset };
         }
         if (args.legend && typeof args.legend === 'object') {
-          patch.legend = { ...resolved.legend, ...args.legend };
+          patch.legend = preserveCanonicalLegend(current, resolved, args.legend);
         }
         if (typeof args.showLegend === 'boolean') {
           patch.showLegend = args.showLegend;
-          patch.legend = { ...(patch.legend ?? resolved.legend), enabled: args.showLegend };
+          patch.legend = preserveCanonicalLegend(current, resolved, { ...(patch.legend ?? {}), enabled: args.showLegend });
         }
         if (typeof args.showInset === 'boolean') {
           patch.showInset = args.showInset;
@@ -750,7 +764,7 @@ const plugin = {
             aspect: MAP_ASPECT_ID,
             patch: syncFlatFields({
               highlights: list,
-              ...(hasLabeled ? { legend: { ...resolved.legend, enabled: true } } : {}),
+              ...(hasLabeled ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}),
             }),
           });
         } else {
@@ -799,7 +813,7 @@ const plugin = {
           aspect: MAP_ASPECT_ID,
           patch: syncFlatFields({
             highlights: list,
-            ...(enableLegend ? { legend: { ...resolved.legend, enabled: true } } : {}),
+            ...(enableLegend ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}),
           }),
         });
       }
@@ -839,7 +853,7 @@ const plugin = {
           aspect: MAP_ASPECT_ID,
           patch: syncFlatFields({
             customLayers: [...(current?.customLayers ?? []), args.layer],
-            legend: { ...resolved.legend, enabled: true },
+            legend: preserveCanonicalLegend(current, resolved, { enabled: true }),
           }),
         };
       });
@@ -977,6 +991,117 @@ const plugin = {
       return targetIds;
     };
 
+    const updateLegendItem = (rawArgs = {}) => {
+      const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
+      const targetIds = getSelectedMapIds(context, args.entityId);
+      if (!targetIds.length) return null;
+      const ops = [];
+
+      for (const id of targetIds) {
+        const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+        if (!current) continue;
+        const resolved = resolveMapSpec(current);
+        let target = args.target && typeof args.target === 'object' ? args.target : null;
+        if (!target && Number.isInteger(args.index)) {
+          target = listEditableLegendEntries(current)[args.index]?.target ?? null;
+        }
+        if (!target) continue;
+
+        if (target.source === 'explicit') {
+          const items = structuredClone(Array.isArray(current.legend?.items) ? current.legend.items : []);
+          const item = items[target.index];
+          if (!item || typeof item !== 'object') continue;
+          if (typeof args.label === 'string') item.label = args.label.trim();
+          if (typeof args.included === 'boolean') item.visible = args.included;
+          const enableBox = (typeof args.label === 'string' && args.label.trim().length > 0) || args.included === true;
+          ops.push({
+            id,
+            aspect: MAP_ASPECT_ID,
+            patch: syncFlatFields({
+              legend: preserveCanonicalLegend(current, resolved, {
+                items,
+                ...(enableBox ? { enabled: true } : {}),
+              }),
+            }),
+          });
+        } else if (target.source === 'highlight' && Array.isArray(target.indices)) {
+          const list = structuredClone(resolved.highlights);
+          let changed = false;
+          let enableBox = false;
+          for (const idx of target.indices) {
+            const item = list[idx];
+            if (!item) continue;
+            if (typeof args.label === 'string') {
+              const trimmed = args.label.trim();
+              item.legendLabel = trimmed;
+              item.showInLegend = trimmed.length > 0;
+              if (trimmed.length > 0) enableBox = true;
+              changed = true;
+            }
+            if (typeof args.included === 'boolean') {
+              item.showInLegend = args.included;
+              if (args.included && !item.legendLabel) item.legendLabel = `강조 (${item.level})`;
+              if (args.included) enableBox = true;
+              changed = true;
+            }
+          }
+          if (changed) {
+            ops.push({
+              id,
+              aspect: MAP_ASPECT_ID,
+              patch: syncFlatFields({
+                highlights: list,
+                ...(enableBox ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}),
+              }),
+            });
+          }
+        } else if (target.source === 'layer' && target.layerId) {
+          let changed = false;
+          let enableBox = false;
+          const layers = structuredClone(current.customLayers ?? []).map(layer => {
+            if (layer.id !== target.layerId) return layer;
+            changed = true;
+            const next = { ...layer };
+            if (typeof args.label === 'string') {
+              const trimmed = args.label.trim();
+              if (trimmed) {
+                next.name = trimmed;
+                next.showInLegend = true;
+                enableBox = true;
+              } else {
+                next.showInLegend = false;
+              }
+            }
+            if (typeof args.included === 'boolean') {
+              next.showInLegend = args.included;
+              if (args.included) {
+                if (!String(next.name ?? '').trim()) next.name = '범례 항목';
+                enableBox = true;
+              }
+            }
+            return next;
+          });
+          if (changed) {
+            ops.push({
+              id,
+              aspect: MAP_ASPECT_ID,
+              patch: syncFlatFields({
+                customLayers: layers,
+                ...(enableBox ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}),
+              }),
+            });
+          }
+        }
+      }
+
+      if (ops.length) {
+        withHistoryGroup(context, () => {
+          context.world.applyCanonicalTransaction(`${EXTENSION_ID}:update-legend-item`, ops);
+        });
+      }
+      return targetIds;
+    };
+
     const removeAnnotation = (rawArgs = {}) => {
       const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
       const targetIds = getSelectedMapIds(context, args.entityId);
@@ -1085,7 +1210,7 @@ const plugin = {
       const resolved = resolveMapSpec(current);
       if (kind === 'legend') {
         const prev = normalizeOffset(resolved.legend.offset);
-        updateStyle({ entityId, legend: { ...resolved.legend, offset: { x: prev.x + dx, y: prev.y + dy } } });
+        updateStyle({ entityId, legend: preserveCanonicalLegend(current, resolved, { offset: { x: prev.x + dx, y: prev.y + dy } }) });
       } else if (kind === 'inset') {
         const prev = normalizeOffset(resolved.inset.offset);
         updateStyle({ entityId, inset: { ...resolved.inset, offset: { x: prev.x + dx, y: prev.y + dy } } });
@@ -1197,6 +1322,7 @@ const plugin = {
         case 'add-annotation': return addAnnotation(args);
         case 'update-annotation': return updateAnnotation(args);
         case 'remove-annotation': return removeAnnotation(args);
+        case 'update-legend-item': return updateLegendItem(args);
         case 'start-tool': {
           const targetId = getSelectedMapIds(context, args.entityId)[0];
           if (targetId && args.mode) {
@@ -1252,6 +1378,7 @@ const plugin = {
         addAnnotation,
         updateAnnotation,
         removeAnnotation,
+        updateLegendItem,
         toggleAutoDetail,
         bakeHighRes,
         clearBaked,
@@ -1275,6 +1402,7 @@ export {
   COMMAND_NAMES,
   EXTENSION_ID,
   HIGHLIGHT_SLOTS,
+  LEGEND_INSPECTOR_PANEL_ID,
   MAP_ASPECT_ID,
   MAP_DEFAULTS,
   MAP_PRINT_PRESETS,
@@ -1282,11 +1410,13 @@ export {
   STUDIO_PANEL_ID,
   THEMATIC_PRESETS,
   bakeHighResSnapshot,
+  createLegendInspectorSpec,
   createMapPropsForRegion,
   createMapPropsFromThematicPreset,
   createPackageManifest,
   deriveMapGeometry,
   getOfflineBaseGis,
+  listEditableLegendEntries,
   mountMapExplorer,
   mountMapGizmos,
   mountMapMenubar,

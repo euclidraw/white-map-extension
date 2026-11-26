@@ -216,6 +216,7 @@ export function resolveMapSpec(rawProps = {}) {
         .filter(h => isRecord(h) && Array.isArray(h.codes) && h.codes.length > 0)
         .map(h => ({
           ...(typeof h.slotId === 'string' && h.slotId ? { slotId: h.slotId } : {}),
+          ...(typeof h.showInLegend === 'boolean' ? { showInLegend: h.showInLegend } : {}),
           level: ['admin1','kr-sido','kr-sgg'].includes(h.level) ? h.level : 'admin0',
           codes: h.codes.map(c => String(c).trim()).filter(Boolean),
           fill: typeof h.fill === 'string' && h.fill ? h.fill : style.highlight,
@@ -257,7 +258,7 @@ export function resolveMapSpec(rawProps = {}) {
   const autoLegendItems = [];
   const seenHighlightLegend = new Set();
   for (const h of highlights) {
-    if (h.legendLabel) {
+    if (h.legendLabel && h.showInLegend !== false) {
       const key = `${h.legendLabel}\u0000${h.fill}\u0000${h.pattern}`;
       if (!seenHighlightLegend.has(key)) {
         seenHighlightLegend.add(key);
@@ -267,7 +268,8 @@ export function resolveMapSpec(rawProps = {}) {
   }
   for (const layer of customLayers) {
     if (layer.visible === false || !layer.name) continue;
-    if (layer.kind === 'point' && !layer.showInLegend) continue;
+    const inLegend = layer.kind === 'point' ? Boolean(layer.showInLegend) : layer.showInLegend !== false;
+    if (!inLegend) continue;
     autoLegendItems.push({
       kind: layer.kind || 'polygon',
       label: layer.name,
@@ -280,7 +282,10 @@ export function resolveMapSpec(rawProps = {}) {
       marker: layer.style?.marker || 'dot',
     });
   }
-  const explicitItems = Array.isArray(legendRaw.items) && legendRaw.items.length > 0 ? legendRaw.items : autoLegendItems;
+  const hasExplicitLegend = Array.isArray(legendRaw.items) && legendRaw.items.length > 0;
+  const explicitItems = hasExplicitLegend
+    ? legendRaw.items.filter(it => isRecord(it) && it.visible !== false && String(it.label ?? '').trim())
+    : autoLegendItems;
   const legendCornerVal = rawProps.legendCorner ?? legendRaw.corner;
   const legendEnabled = typeof rawProps.showLegend === 'boolean'
     ? rawProps.showLegend
@@ -309,6 +314,92 @@ export function resolveMapSpec(rawProps = {}) {
     legend,
     bakeEnabled: rawProps.bakedDetail === true || isLegacyBake(rawProps.bakedDetail),
   };
+}
+
+/**
+ * Lists every legend entry (active or available) for editing in the Props (Inspector) panel.
+ */
+export function listEditableLegendEntries(rawProps = {}) {
+  const resolved = resolveMapSpec(rawProps);
+  const legendRaw = isRecord(rawProps?.legend) ? rawProps.legend : {};
+  if (Array.isArray(legendRaw.items) && legendRaw.items.length > 0) {
+    return legendRaw.items
+      .map((item, idx) => (isRecord(item) ? {
+        key: `explicit:${idx}`,
+        target: { source: 'explicit', index: idx },
+        kind: item.kind || 'polygon',
+        label: typeof item.label === 'string' ? item.label : '',
+        included: item.visible !== false && Boolean(String(item.label ?? '').trim()),
+        swatch: {
+          fill: item.fill || resolved.style.highlight,
+          pattern: item.pattern || 'none',
+          stroke: item.stroke || resolved.style.ink,
+          strokeWidth: item.strokeWidth ?? 1.4,
+          dash: item.dash || 'none',
+          doubleLine: Boolean(item.doubleLine),
+          marker: item.marker || 'dot',
+        },
+      } : null))
+      .filter(Boolean);
+  }
+
+  const entries = [];
+  const groupedHighlights = new Map();
+  resolved.highlights.forEach((h, idx) => {
+    const label = h.legendLabel || '';
+    if (label) {
+      const groupKey = `${label}\u0000${h.fill}\u0000${h.pattern}\u0000${h.showInLegend !== false}`;
+      const existing = groupedHighlights.get(groupKey);
+      if (existing) {
+        existing.target.indices.push(idx);
+        return;
+      }
+      const entry = {
+        key: `highlight-group:${idx}`,
+        target: { source: 'highlight', indices: [idx] },
+        kind: 'polygon',
+        label,
+        included: h.showInLegend !== false,
+        swatch: { fill: h.fill, pattern: h.pattern, stroke: resolved.style.ink },
+      };
+      groupedHighlights.set(groupKey, entry);
+      entries.push(entry);
+    } else {
+      entries.push({
+        key: `highlight:${idx}`,
+        target: { source: 'highlight', indices: [idx] },
+        kind: 'polygon',
+        label: '',
+        included: false,
+        placeholder: `범례 이름 입력 (${h.level})`,
+        swatch: { fill: h.fill, pattern: h.pattern, stroke: resolved.style.ink },
+      });
+    }
+  });
+
+  for (const layer of resolved.customLayers) {
+    if (layer.visible === false) continue;
+    const kind = layer.kind || 'polygon';
+    const inLegend = kind === 'point' ? Boolean(layer.showInLegend) : layer.showInLegend !== false;
+    entries.push({
+      key: `layer:${layer.id}`,
+      target: { source: 'layer', layerId: layer.id },
+      kind,
+      label: typeof layer.name === 'string' ? layer.name : '',
+      included: inLegend && Boolean(String(layer.name ?? '').trim()),
+      swatch: {
+        fill: layer.style?.fill || resolved.style.highlight,
+        pattern: layer.style?.pattern || 'none',
+        stroke: layer.style?.stroke || resolved.style.ink,
+        strokeWidth: layer.style?.strokeWidth ?? 1.4,
+        dash: layer.style?.dash || 'none',
+        doubleLine: Boolean(layer.style?.doubleLine),
+        marker: layer.style?.marker || 'dot',
+      },
+    });
+  }
+
+  return entries;
 }
 
 export function deriveMapGeometry(_props, id, view) {

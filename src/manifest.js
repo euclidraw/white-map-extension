@@ -3,6 +3,7 @@ import rawConfig from '../extension.json' with { type: 'json' };
 export const EXTENSION_ID = rawConfig.id;
 export const MAP_ASPECT_ID = `${EXTENSION_ID}.map`;
 export const STUDIO_PANEL_ID = `${EXTENSION_ID}.studio`;
+export const LEGEND_INSPECTOR_PANEL_ID = `${EXTENSION_ID}.legend-inspector`;
 
 export const COMMAND_NAMES = Object.freeze([
   'insert-map',
@@ -22,6 +23,7 @@ export const COMMAND_NAMES = Object.freeze([
   'remove-annotation',
   'remove-highlight',
   'add-custom-point',
+  'update-legend-item',
   'start-tool',
   'toggle-auto-detail',
   'bake-high-res',

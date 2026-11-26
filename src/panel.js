@@ -4,8 +4,8 @@ import { BASE_CRS_LABEL } from './crs.js';
 import districtNames from './data/kr-district-names.json' with { type: 'json' };
 import { REGION_PRESETS } from './catalog.js';
 import { THEMATIC_PRESETS } from './data/gis-presets.js';
-import { EXTENSION_ID, MAP_ASPECT_ID, STUDIO_PANEL_ID } from './manifest.js';
-import { parseCustomGisInput, resolveMapSpec } from './model.js';
+import { EXTENSION_ID, LEGEND_INSPECTOR_PANEL_ID, MAP_ASPECT_ID, STUDIO_PANEL_ID } from './manifest.js';
+import { listEditableLegendEntries, parseCustomGisInput, resolveMapSpec } from './model.js';
 import { EXAMPLE_MAP_CSS, parseMapCss } from './print-style.js';
 
 const h = React.createElement;
@@ -795,6 +795,197 @@ export function createStudioPanelSpec() {
       }
       const root = createRoot(hostEl);
       root.render(h(WhiteMapStudioView, { context }));
+      return () => {
+        try { root.unmount(); } catch {}
+      };
+    },
+  };
+}
+
+function LegendSwatchPreview({ entry }) {
+  const { kind, swatch } = entry;
+  const stroke = swatch?.stroke || '#171717';
+  const patId = `wm-ins-pat-${entry.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+
+  if (kind === 'line') {
+    if (swatch?.doubleLine) {
+      return h('svg', { width: 22, height: 14, viewBox: '0 0 22 14', 'aria-hidden': 'true', style: { flexShrink: 0 } },
+        h('line', { x1: 1, y1: 7, x2: 21, y2: 7, stroke, strokeWidth: 3.2 }),
+        h('line', { x1: 1, y1: 7, x2: 21, y2: 7, stroke: '#ffffff', strokeWidth: 1.3 }),
+      );
+    }
+    return h('svg', { width: 22, height: 14, viewBox: '0 0 22 14', 'aria-hidden': 'true', style: { flexShrink: 0 } },
+      h('line', {
+        x1: 1,
+        y1: 7,
+        x2: 21,
+        y2: 7,
+        stroke,
+        strokeWidth: swatch?.strokeWidth ?? 1.5,
+        strokeDasharray: swatch?.dash && swatch.dash !== 'none' ? swatch.dash : undefined,
+      }),
+    );
+  }
+
+  if (kind === 'point') {
+    const marker = swatch?.marker || 'dot';
+    return h('svg', { width: 22, height: 14, viewBox: '0 0 22 14', 'aria-hidden': 'true', style: { flexShrink: 0 } },
+      marker === 'bullseye'
+        ? h(React.Fragment, null,
+          h('circle', { cx: 11, cy: 7, r: 4.2, fill: '#ffffff', stroke, strokeWidth: 1.4 }),
+          h('circle', { cx: 11, cy: 7, r: 1.7, fill: stroke }))
+        : marker === 'ring'
+          ? h('circle', { cx: 11, cy: 7, r: 4.4, fill: '#ffffff', stroke, strokeWidth: 2.2 })
+          : marker === 'square'
+            ? h('rect', { x: 7.2, y: 3.2, width: 7.6, height: 7.6, fill: '#ffffff', stroke, strokeWidth: 1.4 })
+            : marker === 'triangle'
+              ? h('polygon', { points: '11,2.6 6.8,10.6 15.2,10.6', fill: '#ffffff', stroke, strokeWidth: 1.4 })
+              : h('circle', { cx: 11, cy: 7, r: 3.4, fill: stroke, stroke: '#ffffff', strokeWidth: 0.9 }),
+    );
+  }
+
+  const pattern = swatch?.pattern || 'none';
+  const fill = pattern === 'none' ? (swatch?.fill || '#bdbdbd') : `url(#${patId})`;
+  return h('svg', { width: 22, height: 14, viewBox: '0 0 22 14', 'aria-hidden': 'true', style: { flexShrink: 0 } },
+    pattern !== 'none' && h('defs', null,
+      pattern === 'hatch'
+        ? h('pattern', { id: patId, patternUnits: 'userSpaceOnUse', width: 5, height: 5 },
+          h('rect', { width: 5, height: 5, fill: '#ffffff' }),
+          h('path', { d: 'M-1 1L1 -1M0 5L5 0M4 6L6 4', fill: 'none', stroke, strokeWidth: 0.8 }))
+        : pattern === 'crosshatch'
+          ? h('pattern', { id: patId, patternUnits: 'userSpaceOnUse', width: 5, height: 5 },
+            h('rect', { width: 5, height: 5, fill: '#ffffff' }),
+            h('path', { d: 'M0 5L5 0M0 0L5 5', fill: 'none', stroke, strokeWidth: 0.7 }))
+          : h('pattern', { id: patId, patternUnits: 'userSpaceOnUse', width: 4, height: 4 },
+            h('rect', { width: 4, height: 4, fill: '#d8d8d8' }),
+            h('circle', { cx: 1.2, cy: 1.2, r: 0.65, fill: stroke }),
+            h('circle', { cx: 3.2, cy: 3.2, r: 0.55, fill: stroke })),
+    ),
+    h('rect', { x: 2, y: 1.5, width: 18, height: 11, fill, stroke, strokeWidth: 0.85 }),
+  );
+}
+
+/**
+ * Mounted directly inside Alid's native Props (Inspector) panel via `inspectorFor: MAP_ASPECT_ID`
+ * so users can rename legend items and toggle per-item legend visibility without leaving Props.
+ */
+export function LegendItemsInspectorView({ context }) {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!context) return undefined;
+    const bump = () => setTick(v => v + 1);
+    const offSel = context.onSelectionChange?.(bump);
+    const offWorld = context.onWorldMutated?.(bump);
+    return () => {
+      offSel?.();
+      offWorld?.();
+    };
+  }, [context]);
+
+  const selected = useMemo(() => {
+    void tick;
+    const ids = context?.getSelectedIds?.() ?? [];
+    return readSelectedMap(context?.world, ids);
+  }, [context, tick]);
+
+  const entries = useMemo(
+    () => (selected ? listEditableLegendEntries(selected.props) : []),
+    [selected],
+  );
+  const resolved = useMemo(
+    () => (selected ? resolveMapSpec(selected.props) : null),
+    [selected],
+  );
+
+  if (!selected || !resolved) return null;
+
+  const exec = (cmd, args = {}) => context?.executeCommand?.(`${EXTENSION_ID}:${cmd}`, args);
+
+  if (!entries.length) {
+    return h('div', {
+      'data-wm-legend-inspector': 'empty',
+      style: { fontSize: '11.5px', color: 'var(--alid-text-muted, #71717a)', lineHeight: 1.45 },
+    }, '강조 지역·경로·분포 영역·마커를 추가하면 여기서 각 범례 항목의 이름을 바로 수정할 수 있습니다.');
+  }
+
+  return h('div', {
+    'data-wm-legend-inspector': 'true',
+    style: { display: 'grid', gap: '6px', fontSize: '11.5px' },
+  },
+  entries.some(e => e.included) && !resolved.legend.enabled && h('div', {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '6px',
+      padding: '4px 6px',
+      borderRadius: '5px',
+      background: 'var(--alid-bg-muted, #f4f4f5)',
+      fontSize: '11px',
+    },
+  },
+  h('span', { style: { color: 'var(--alid-text-muted, #71717a)' } }, '범례 박스가 숨겨져 있습니다'),
+  h('button', {
+    type: 'button',
+    'data-wm-enable-legend': 'true',
+    onClick: () => void exec('update-style', { entityId: selected.id, showLegend: true }),
+    style: btnStyle(false),
+  }, '범례 표시')),
+
+  ...entries.map((entry, idx) =>
+    h('div', {
+      key: entry.key,
+      'data-wm-legend-item-row': String(idx),
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'auto auto 1fr',
+        gap: '6px',
+        alignItems: 'center',
+      },
+    },
+    h('input', {
+      type: 'checkbox',
+      'aria-label': '범례 항목 표시',
+      title: '범례 박스에 이 항목 표시',
+      checked: entry.included,
+      onChange: e => void exec('update-legend-item', {
+        entityId: selected.id,
+        target: entry.target,
+        included: e.target.checked,
+      }),
+    }),
+    h(LegendSwatchPreview, { entry }),
+    h(CommitTextInput, {
+      value: entry.label,
+      placeholder: entry.placeholder || `항목 ${idx + 1} 이름`,
+      ariaLabel: `범례 항목 ${idx + 1} 이름`,
+      allowEmpty: true,
+      onCommit: nextLabel => void exec('update-legend-item', {
+        entityId: selected.id,
+        target: entry.target,
+        label: nextLabel,
+      }),
+    })),
+  ));
+}
+
+export function createLegendInspectorSpec() {
+  return {
+    panelId: LEGEND_INSPECTOR_PANEL_ID,
+    title: '범례 항목 이름',
+    defaultZone: 'right',
+    inspectorFor: MAP_ASPECT_ID,
+    isolation: 'container',
+    mount(hostEl, context) {
+      if (!hostEl) return () => {};
+      const doc = hostEl.ownerDocument;
+      if (!doc || typeof doc.createElement !== 'function') {
+        hostEl.textContent = '범례 항목 이름';
+        return () => { hostEl.textContent = ''; };
+      }
+      const root = createRoot(hostEl);
+      root.render(h(LegendItemsInspectorView, { context }));
       return () => {
         try { root.unmount(); } catch {}
       };

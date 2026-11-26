@@ -26,7 +26,7 @@
 
 ## 2. Props 패널 · 지도 탭 · 가로 Hover Tooltip 툴바
 
-- **속성(Props) 패널 (`placement: 'inspector'`)**: 자주 쓰는 **수능 인쇄 스타일 · 기본 레이어(자동 상세 타일 포함) · 범례/위치 소지도** 섹션을 상단에 펼쳐 배치하고, **시점 · 좌표 미세조정 · 세부 색상 · 고급 CSS** 섹션은 기본 접힘(`sectionCollapsed: true`)으로 제공합니다.
+- **속성(Props) 패널 (`placement: 'inspector'` + `inspectorFor: 'diagram.white-map.map'`)**: 자주 쓰는 **수능 인쇄 스타일 · 기본 레이어(자동 상세 타일 포함) · 범례/위치 소지도** 섹션을 상단에 펼쳐 배치하고, **시점 · 좌표 미세조정 · 세부 색상 · 고급 CSS** 섹션은 기본 접힘(`sectionCollapsed: true`)으로 제공합니다. 또한 같은 속성창 안에 **`범례 항목 이름` 섹션(`diagram.white-map.legend-inspector`)**을 기여해 강조 그룹·커스텀 레이어·직접 지정 범례 항목의 이름을 기호 미리보기와 함께 바로 변경하거나 개별 범례 표시 여부를 토글할 수 있습니다.
 - **수능 백지도 탭 패널 (`diagram.white-map.studio`)**: 수능 백지도 5종 예제 템플릿(작업 내역 덮어쓰기 보호 포함), 12종 지역 프리셋 검색, `.geojson`/`.topojson`/`.csv` 파일 드롭·선택 및 텍스트 GIS 임포트, 레이어·강조·지시선 라벨 인라인 수정, 멀티라인 `--map-*` CSS 편집기에 집중합니다.
 - **화면 상단 고정 Hover Tooltip 툴바 (`src/map-menubar.js`)**: 백지도를 선택하거나 탐색 중일 때 `alid-stem-extensions`와 동일하게 화면 상단 중앙(`left: 50%; top: 12px`)에 고정되는 가로 도구 막대가 나타납니다. **선택·이동**, **지도 탐색**, **지역 강조(A/B/C/D 슬롯 · 단위 선택 · 호버 윤곽선 미리보기)**, **지시선 라벨 추가/더블클릭 수정**, **지점 마커 배치**, **경로 그리기·분포 영역 다각형 그리기(실시간 고스트 미리보기 · `Backspace` 한 점 취소)**, **국경·하천·범례·인셋 토글**, **자동 상세화(Auto-LOD) 토글**을 즉시 실행할 수 있습니다.
 
@@ -54,6 +54,7 @@
 - `diagram.white-map:add-annotation`
 - `diagram.white-map:update-annotation`
 - `diagram.white-map:remove-annotation`
+- `diagram.white-map:update-legend-item`
 - `diagram.white-map:start-tool`
 - `diagram.white-map:toggle-auto-detail`
 - `diagram.white-map:bake-high-res`

@@ -455,3 +455,92 @@ test('UX 5: Props Inspector prioritizes print style, layers, and legend open at 
   assert.equal(firstOfSection.get('고급 CSS').sectionCollapsed, true);
   assert.ok(inspectorControls.some(c => c.field === 'bakedDetail' && c.kind === 'toggle'));
 });
+
+test('UX 6: Props Inspector contributes an inspectorFor legend item editor that renames and toggles legend entries across layers, highlights, and explicit items', async () => {
+  const legendPanel = whiteMapAspect.ui.panels.find(p => p.inspectorFor === MAP_ASPECT_ID);
+  assert.ok(legendPanel, 'whiteMapAspect contributes an inspectorFor section inside Props');
+  assert.equal(legendPanel.navigation, undefined, 'inspectorFor section must not declare separate sidebar navigation');
+  assert.equal(legendPanel.title, '범례 항목 이름');
+
+  const h = createFullHarness(createMapPropsFromThematicPreset('csat-world-env'));
+  const { window, doc, studioHost, commands, world } = h;
+
+  const savedGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    Event: globalThis.Event,
+  };
+  Object.assign(globalThis, {
+    window,
+    document: doc,
+    HTMLElement: window.HTMLElement,
+    HTMLInputElement: window.HTMLInputElement,
+    Event: window.Event,
+  });
+
+  let unmount;
+  try {
+    await act(async () => {
+      unmount = legendPanel.mount(studioHost, {
+        world,
+        getSelectedIds: () => h.getSelected(),
+        onSelectionChange: () => () => {},
+        onWorldMutated: cb => world.subscribe(cb),
+        executeCommand: (cmdId, args) => commands.get(cmdId)?.(args),
+      });
+    });
+
+    const rows = studioHost.querySelectorAll('[data-wm-legend-item-row]');
+    assert.equal(rows.length, 3, 'csat-world-env exposes A, B, C legend items in Props');
+
+    // Rename item 1 ('A') -> '(가) 사막화 위험'
+    const firstInput = rows[0].querySelector('input[type="text"]');
+    assert.equal(firstInput.value, 'A');
+    await act(async () => {
+      firstInput.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(firstInput, '(가) 사막화 위험');
+      firstInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+      firstInput.blur();
+    });
+    const svgAfterRename = renderMapSvg(h.getProps('m1')).svg;
+    assert.match(svgAfterRename, /\(가\) 사막화 위험/);
+
+    // Uncheck item 2 ('B') -> hides from legend box without deleting the polygon layer
+    const secondCheckbox = rows[1].querySelector('input[type="checkbox"]');
+    assert.equal(secondCheckbox.checked, true);
+    await act(async () => {
+      secondCheckbox.click();
+    });
+    assert.equal(h.getProps('m1').customLayers.length, 3, 'polygon layer remains intact');
+    const legendGroupMatch = renderMapSvg(h.getProps('m1')).svg.match(/<g data-map-drag="legend"[\s\S]*?<\/g>/);
+    assert.ok(legendGroupMatch);
+    assert.doesNotMatch(legendGroupMatch[0], />B</);
+
+    // Switch to unlabeled highlight map (csat-ea-countries) -> naming in Props auto-enables legend box
+    await act(async () => {
+      commands.get('diagram.white-map:apply-preset')({ entityId: 'm1', thematicId: 'csat-ea-countries' });
+    });
+    assert.equal(h.getProps('m1').showLegend, false);
+    const hlInput = studioHost.querySelector('[data-wm-legend-item-row="0"] input[type="text"]');
+    assert.ok(hlInput);
+    await act(async () => {
+      hlInput.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(hlInput, '(나) 주요 교역국');
+      hlInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+      hlInput.blur();
+    });
+    assert.equal(h.getProps('m1').showLegend, true);
+    assert.match(renderMapSvg(h.getProps('m1')).svg, /\(나\) 주요 교역국/);
+  } finally {
+    if (unmount) await act(async () => { unmount(); });
+    h.activated.dispose();
+    for (const [k, v] of Object.entries(savedGlobals)) {
+      if (v === undefined) delete globalThis[k];
+      else globalThis[k] = v;
+    }
+  }
+});

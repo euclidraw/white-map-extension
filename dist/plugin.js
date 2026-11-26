@@ -11436,7 +11436,7 @@ function frameLayout(width, height, resolved, detailEnabled = resolved.bakeEnabl
 var extension_default = {
 	id: "diagram.white-map",
 	title: "수능 백지도",
-	version: "0.4.0",
+	version: "0.4.1",
 	summary: "특정 지역 중심 백지도, 국경·행정구역·하천 레이어, 수능 인쇄 스타일·커스텀 GIS 매핑, 더블클릭 프레임 탐색 및 현재 화면 범위의 상세 벡터 타일 로딩를 제공하는 확장",
 	engine: "^0.1.1",
 	dependencies: {},
@@ -16227,6 +16227,7 @@ function resolveMapSpec(rawProps = {}) {
 	};
 	const highlights = Array.isArray(rawProps.highlights) ? rawProps.highlights.filter((h) => isRecord$1(h) && Array.isArray(h.codes) && h.codes.length > 0).map((h) => ({
 		...typeof h.slotId === "string" && h.slotId ? { slotId: h.slotId } : {},
+		...typeof h.showInLegend === "boolean" ? { showInLegend: h.showInLegend } : {},
 		level: [
 			"admin1",
 			"kr-sido",
@@ -16274,7 +16275,7 @@ function resolveMapSpec(rawProps = {}) {
 	const legendRaw = isRecord$1(rawProps.legend) ? rawProps.legend : {};
 	const autoLegendItems = [];
 	const seenHighlightLegend = /* @__PURE__ */ new Set();
-	for (const h of highlights) if (h.legendLabel) {
+	for (const h of highlights) if (h.legendLabel && h.showInLegend !== false) {
 		const key = `${h.legendLabel}\u0000${h.fill}\u0000${h.pattern}`;
 		if (!seenHighlightLegend.has(key)) {
 			seenHighlightLegend.add(key);
@@ -16288,7 +16289,7 @@ function resolveMapSpec(rawProps = {}) {
 	}
 	for (const layer of customLayers) {
 		if (layer.visible === false || !layer.name) continue;
-		if (layer.kind === "point" && !layer.showInLegend) continue;
+		if (!(layer.kind === "point" ? Boolean(layer.showInLegend) : layer.showInLegend !== false)) continue;
 		autoLegendItems.push({
 			kind: layer.kind || "polygon",
 			label: layer.name,
@@ -16301,7 +16302,7 @@ function resolveMapSpec(rawProps = {}) {
 			marker: layer.style?.marker || "dot"
 		});
 	}
-	const explicitItems = Array.isArray(legendRaw.items) && legendRaw.items.length > 0 ? legendRaw.items : autoLegendItems;
+	const explicitItems = Array.isArray(legendRaw.items) && legendRaw.items.length > 0 ? legendRaw.items.filter((it) => isRecord$1(it) && it.visible !== false && String(it.label ?? "").trim()) : autoLegendItems;
 	const legendCornerVal = rawProps.legendCorner ?? legendRaw.corner;
 	const legend = {
 		enabled: typeof rawProps.showLegend === "boolean" ? rawProps.showLegend : legendRaw.enabled !== void 0 ? Boolean(legendRaw.enabled) : explicitItems.length > 0,
@@ -16331,6 +16332,102 @@ function resolveMapSpec(rawProps = {}) {
 		legend,
 		bakeEnabled: rawProps.bakedDetail === true || isLegacyBake(rawProps.bakedDetail)
 	};
+}
+/**
+* Lists every legend entry (active or available) for editing in the Props (Inspector) panel.
+*/
+function listEditableLegendEntries(rawProps = {}) {
+	const resolved = resolveMapSpec(rawProps);
+	const legendRaw = isRecord$1(rawProps?.legend) ? rawProps.legend : {};
+	if (Array.isArray(legendRaw.items) && legendRaw.items.length > 0) return legendRaw.items.map((item, idx) => isRecord$1(item) ? {
+		key: `explicit:${idx}`,
+		target: {
+			source: "explicit",
+			index: idx
+		},
+		kind: item.kind || "polygon",
+		label: typeof item.label === "string" ? item.label : "",
+		included: item.visible !== false && Boolean(String(item.label ?? "").trim()),
+		swatch: {
+			fill: item.fill || resolved.style.highlight,
+			pattern: item.pattern || "none",
+			stroke: item.stroke || resolved.style.ink,
+			strokeWidth: item.strokeWidth ?? 1.4,
+			dash: item.dash || "none",
+			doubleLine: Boolean(item.doubleLine),
+			marker: item.marker || "dot"
+		}
+	} : null).filter(Boolean);
+	const entries = [];
+	const groupedHighlights = /* @__PURE__ */ new Map();
+	resolved.highlights.forEach((h, idx) => {
+		const label = h.legendLabel || "";
+		if (label) {
+			const groupKey = `${label}\u0000${h.fill}\u0000${h.pattern}\u0000${h.showInLegend !== false}`;
+			const existing = groupedHighlights.get(groupKey);
+			if (existing) {
+				existing.target.indices.push(idx);
+				return;
+			}
+			const entry = {
+				key: `highlight-group:${idx}`,
+				target: {
+					source: "highlight",
+					indices: [idx]
+				},
+				kind: "polygon",
+				label,
+				included: h.showInLegend !== false,
+				swatch: {
+					fill: h.fill,
+					pattern: h.pattern,
+					stroke: resolved.style.ink
+				}
+			};
+			groupedHighlights.set(groupKey, entry);
+			entries.push(entry);
+		} else entries.push({
+			key: `highlight:${idx}`,
+			target: {
+				source: "highlight",
+				indices: [idx]
+			},
+			kind: "polygon",
+			label: "",
+			included: false,
+			placeholder: `범례 이름 입력 (${h.level})`,
+			swatch: {
+				fill: h.fill,
+				pattern: h.pattern,
+				stroke: resolved.style.ink
+			}
+		});
+	});
+	for (const layer of resolved.customLayers) {
+		if (layer.visible === false) continue;
+		const kind = layer.kind || "polygon";
+		const inLegend = kind === "point" ? Boolean(layer.showInLegend) : layer.showInLegend !== false;
+		entries.push({
+			key: `layer:${layer.id}`,
+			target: {
+				source: "layer",
+				layerId: layer.id
+			},
+			kind,
+			label: typeof layer.name === "string" ? layer.name : "",
+			included: inLegend && Boolean(String(layer.name ?? "").trim()),
+			swatch: {
+				fill: layer.style?.fill || resolved.style.highlight,
+				pattern: layer.style?.pattern || "none",
+				stroke: layer.style?.stroke || resolved.style.ink,
+				strokeWidth: layer.style?.strokeWidth ?? 1.4,
+				dash: layer.style?.dash || "none",
+				doubleLine: Boolean(layer.style?.doubleLine),
+				marker: layer.style?.marker || "dot"
+			}
+		});
+	}
+	return entries;
 }
 function deriveMapGeometry(_props, id, view) {
 	const transform = view?.getCanonical?.(id, "core.transform") ?? {
@@ -17291,6 +17388,7 @@ async function bakeHighResSnapshot({ bbox, layers = {}, scale = 3e3, fetcher = g
 var EXTENSION_ID = extension_default.id;
 var MAP_ASPECT_ID = `${EXTENSION_ID}.map`;
 var STUDIO_PANEL_ID = `${EXTENSION_ID}.studio`;
+var LEGEND_INSPECTOR_PANEL_ID = `${EXTENSION_ID}.legend-inspector`;
 var COMMAND_NAMES = Object.freeze([
 	"insert-map",
 	"explore-map",
@@ -17309,6 +17407,7 @@ var COMMAND_NAMES = Object.freeze([
 	"remove-annotation",
 	"remove-highlight",
 	"add-custom-point",
+	"update-legend-item",
 	"start-tool",
 	"toggle-auto-detail",
 	"bake-high-res",
@@ -20437,6 +20536,275 @@ function createStudioPanelSpec() {
 		}
 	};
 }
+function LegendSwatchPreview({ entry }) {
+	const { kind, swatch } = entry;
+	const stroke = swatch?.stroke || "#171717";
+	const patId = `wm-ins-pat-${entry.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+	if (kind === "line") {
+		if (swatch?.doubleLine) return h("svg", {
+			width: 22,
+			height: 14,
+			viewBox: "0 0 22 14",
+			"aria-hidden": "true",
+			style: { flexShrink: 0 }
+		}, h("line", {
+			x1: 1,
+			y1: 7,
+			x2: 21,
+			y2: 7,
+			stroke,
+			strokeWidth: 3.2
+		}), h("line", {
+			x1: 1,
+			y1: 7,
+			x2: 21,
+			y2: 7,
+			stroke: "#ffffff",
+			strokeWidth: 1.3
+		}));
+		return h("svg", {
+			width: 22,
+			height: 14,
+			viewBox: "0 0 22 14",
+			"aria-hidden": "true",
+			style: { flexShrink: 0 }
+		}, h("line", {
+			x1: 1,
+			y1: 7,
+			x2: 21,
+			y2: 7,
+			stroke,
+			strokeWidth: swatch?.strokeWidth ?? 1.5,
+			strokeDasharray: swatch?.dash && swatch.dash !== "none" ? swatch.dash : void 0
+		}));
+	}
+	if (kind === "point") {
+		const marker = swatch?.marker || "dot";
+		return h("svg", {
+			width: 22,
+			height: 14,
+			viewBox: "0 0 22 14",
+			"aria-hidden": "true",
+			style: { flexShrink: 0 }
+		}, marker === "bullseye" ? h(React.Fragment, null, h("circle", {
+			cx: 11,
+			cy: 7,
+			r: 4.2,
+			fill: "#ffffff",
+			stroke,
+			strokeWidth: 1.4
+		}), h("circle", {
+			cx: 11,
+			cy: 7,
+			r: 1.7,
+			fill: stroke
+		})) : marker === "ring" ? h("circle", {
+			cx: 11,
+			cy: 7,
+			r: 4.4,
+			fill: "#ffffff",
+			stroke,
+			strokeWidth: 2.2
+		}) : marker === "square" ? h("rect", {
+			x: 7.2,
+			y: 3.2,
+			width: 7.6,
+			height: 7.6,
+			fill: "#ffffff",
+			stroke,
+			strokeWidth: 1.4
+		}) : marker === "triangle" ? h("polygon", {
+			points: "11,2.6 6.8,10.6 15.2,10.6",
+			fill: "#ffffff",
+			stroke,
+			strokeWidth: 1.4
+		}) : h("circle", {
+			cx: 11,
+			cy: 7,
+			r: 3.4,
+			fill: stroke,
+			stroke: "#ffffff",
+			strokeWidth: .9
+		}));
+	}
+	const pattern = swatch?.pattern || "none";
+	const fill = pattern === "none" ? swatch?.fill || "#bdbdbd" : `url(#${patId})`;
+	return h("svg", {
+		width: 22,
+		height: 14,
+		viewBox: "0 0 22 14",
+		"aria-hidden": "true",
+		style: { flexShrink: 0 }
+	}, pattern !== "none" && h("defs", null, pattern === "hatch" ? h("pattern", {
+		id: patId,
+		patternUnits: "userSpaceOnUse",
+		width: 5,
+		height: 5
+	}, h("rect", {
+		width: 5,
+		height: 5,
+		fill: "#ffffff"
+	}), h("path", {
+		d: "M-1 1L1 -1M0 5L5 0M4 6L6 4",
+		fill: "none",
+		stroke,
+		strokeWidth: .8
+	})) : pattern === "crosshatch" ? h("pattern", {
+		id: patId,
+		patternUnits: "userSpaceOnUse",
+		width: 5,
+		height: 5
+	}, h("rect", {
+		width: 5,
+		height: 5,
+		fill: "#ffffff"
+	}), h("path", {
+		d: "M0 5L5 0M0 0L5 5",
+		fill: "none",
+		stroke,
+		strokeWidth: .7
+	})) : h("pattern", {
+		id: patId,
+		patternUnits: "userSpaceOnUse",
+		width: 4,
+		height: 4
+	}, h("rect", {
+		width: 4,
+		height: 4,
+		fill: "#d8d8d8"
+	}), h("circle", {
+		cx: 1.2,
+		cy: 1.2,
+		r: .65,
+		fill: stroke
+	}), h("circle", {
+		cx: 3.2,
+		cy: 3.2,
+		r: .55,
+		fill: stroke
+	}))), h("rect", {
+		x: 2,
+		y: 1.5,
+		width: 18,
+		height: 11,
+		fill,
+		stroke,
+		strokeWidth: .85
+	}));
+}
+/**
+* Mounted directly inside Alid's native Props (Inspector) panel via `inspectorFor: MAP_ASPECT_ID`
+* so users can rename legend items and toggle per-item legend visibility without leaving Props.
+*/
+function LegendItemsInspectorView({ context }) {
+	const [tick, setTick] = useState(0);
+	useEffect(() => {
+		if (!context) return void 0;
+		const bump = () => setTick((v) => v + 1);
+		const offSel = context.onSelectionChange?.(bump);
+		const offWorld = context.onWorldMutated?.(bump);
+		return () => {
+			offSel?.();
+			offWorld?.();
+		};
+	}, [context]);
+	const selected = useMemo(() => {
+		const ids = context?.getSelectedIds?.() ?? [];
+		return readSelectedMap(context?.world, ids);
+	}, [context, tick]);
+	const entries = useMemo(() => selected ? listEditableLegendEntries(selected.props) : [], [selected]);
+	const resolved = useMemo(() => selected ? resolveMapSpec(selected.props) : null, [selected]);
+	if (!selected || !resolved) return null;
+	const exec = (cmd, args = {}) => context?.executeCommand?.(`${EXTENSION_ID}:${cmd}`, args);
+	if (!entries.length) return h("div", {
+		"data-wm-legend-inspector": "empty",
+		style: {
+			fontSize: "11.5px",
+			color: "var(--alid-text-muted, #71717a)",
+			lineHeight: 1.45
+		}
+	}, "강조 지역·경로·분포 영역·마커를 추가하면 여기서 각 범례 항목의 이름을 바로 수정할 수 있습니다.");
+	return h("div", {
+		"data-wm-legend-inspector": "true",
+		style: {
+			display: "grid",
+			gap: "6px",
+			fontSize: "11.5px"
+		}
+	}, entries.some((e) => e.included) && !resolved.legend.enabled && h("div", { style: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: "6px",
+		padding: "4px 6px",
+		borderRadius: "5px",
+		background: "var(--alid-bg-muted, #f4f4f5)",
+		fontSize: "11px"
+	} }, h("span", { style: { color: "var(--alid-text-muted, #71717a)" } }, "범례 박스가 숨겨져 있습니다"), h("button", {
+		type: "button",
+		"data-wm-enable-legend": "true",
+		onClick: () => void exec("update-style", {
+			entityId: selected.id,
+			showLegend: true
+		}),
+		style: btnStyle(false)
+	}, "범례 표시")), ...entries.map((entry, idx) => h("div", {
+		key: entry.key,
+		"data-wm-legend-item-row": String(idx),
+		style: {
+			display: "grid",
+			gridTemplateColumns: "auto auto 1fr",
+			gap: "6px",
+			alignItems: "center"
+		}
+	}, h("input", {
+		type: "checkbox",
+		"aria-label": "범례 항목 표시",
+		title: "범례 박스에 이 항목 표시",
+		checked: entry.included,
+		onChange: (e) => void exec("update-legend-item", {
+			entityId: selected.id,
+			target: entry.target,
+			included: e.target.checked
+		})
+	}), h(LegendSwatchPreview, { entry }), h(CommitTextInput, {
+		value: entry.label,
+		placeholder: entry.placeholder || `항목 ${idx + 1} 이름`,
+		ariaLabel: `범례 항목 ${idx + 1} 이름`,
+		allowEmpty: true,
+		onCommit: (nextLabel) => void exec("update-legend-item", {
+			entityId: selected.id,
+			target: entry.target,
+			label: nextLabel
+		})
+	}))));
+}
+function createLegendInspectorSpec() {
+	return {
+		panelId: LEGEND_INSPECTOR_PANEL_ID,
+		title: "범례 항목 이름",
+		defaultZone: "right",
+		inspectorFor: MAP_ASPECT_ID,
+		isolation: "container",
+		mount(hostEl, context) {
+			if (!hostEl) return () => {};
+			const doc = hostEl.ownerDocument;
+			if (!doc || typeof doc.createElement !== "function") {
+				hostEl.textContent = "범례 항목 이름";
+				return () => {
+					hostEl.textContent = "";
+				};
+			}
+			const root = createRoot(hostEl);
+			root.render(h(LegendItemsInspectorView, { context }));
+			return () => {
+				try {
+					root.unmount();
+				} catch {}
+			};
+		}
+	};
+}
 // src/tools.js
 function isRecord(v) {
 	return Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -20748,6 +21116,7 @@ var COMMAND_LABELS = Object.freeze({
 	"remove-annotation": "지시선 라벨 삭제",
 	"remove-highlight": "강조 그룹 삭제",
 	"add-custom-point": "지점 마커 배치",
+	"update-legend-item": "범례 항목 이름·표시 변경",
 	"start-tool": "지도 배치 도구 시작",
 	"toggle-auto-detail": "자동 상세 타일 토글",
 	"bake-high-res": "현재 범위 상세 타일 불러오기",
@@ -21187,7 +21556,7 @@ var whiteMapAspect = Object.freeze({
 				placement: "inspector"
 			}
 		],
-		panels: [createStudioPanelSpec()]
+		panels: [createStudioPanelSpec(), createLegendInspectorSpec()]
 	}
 });
 function getActiveSurface(context) {
@@ -21225,11 +21594,21 @@ function countMaps(world) {
 	}
 	return n;
 }
+function preserveCanonicalLegend(current, resolved, overrides = {}) {
+	const rawItems = Array.isArray(current?.legend?.items) ? current.legend.items : [];
+	return {
+		enabled: resolved.legend.enabled,
+		corner: resolved.legend.corner,
+		offset: resolved.legend.offset,
+		...overrides,
+		items: overrides.items !== void 0 ? overrides.items : rawItems
+	};
+}
 var plugin = {
 	...createPackageManifest(extension_default),
 	summary: extension_default.summary,
 	aspects: [whiteMapAspect],
-	ui: { panels: [createStudioPanelSpec()] },
+	ui: { panels: [createStudioPanelSpec(), createLegendInspectorSpec()] },
 	activate(context) {
 		const disposers = [];
 		let disposed = false, queued = false;
@@ -21390,16 +21769,13 @@ var plugin = {
 					...resolved.inset,
 					...args.inset
 				};
-				if (args.legend && typeof args.legend === "object") patch.legend = {
-					...resolved.legend,
-					...args.legend
-				};
+				if (args.legend && typeof args.legend === "object") patch.legend = preserveCanonicalLegend(current, resolved, args.legend);
 				if (typeof args.showLegend === "boolean") {
 					patch.showLegend = args.showLegend;
-					patch.legend = {
-						...patch.legend ?? resolved.legend,
+					patch.legend = preserveCanonicalLegend(current, resolved, {
+						...patch.legend ?? {},
 						enabled: args.showLegend
-					};
+					});
 				}
 				if (typeof args.showInset === "boolean") {
 					patch.showInset = args.showInset;
@@ -21484,10 +21860,7 @@ var plugin = {
 						aspect: MAP_ASPECT_ID,
 						patch: syncFlatFields({
 							highlights: list,
-							...hasLabeled ? { legend: {
-								...resolved.legend,
-								enabled: true
-							} } : {}
+							...hasLabeled ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}
 						})
 					});
 				} else {
@@ -21544,10 +21917,7 @@ var plugin = {
 					aspect: MAP_ASPECT_ID,
 					patch: syncFlatFields({
 						highlights: list,
-						...enableLegend ? { legend: {
-							...resolved.legend,
-							enabled: true
-						} } : {}
+						...enableLegend ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}
 					})
 				});
 			}
@@ -21586,10 +21956,7 @@ var plugin = {
 					aspect: MAP_ASPECT_ID,
 					patch: syncFlatFields({
 						customLayers: [...current?.customLayers ?? [], args.layer],
-						legend: {
-							...resolved.legend,
-							enabled: true
-						}
+						legend: preserveCanonicalLegend(current, resolved, { enabled: true })
 					})
 				};
 			});
@@ -21738,6 +22105,101 @@ var plugin = {
 			}
 			if (ops.length) withHistoryGroup(context, () => {
 				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:update-annotation`, ops);
+			});
+			return targetIds;
+		};
+		const updateLegendItem = (rawArgs = {}) => {
+			const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+			const targetIds = getSelectedMapIds(context, args.entityId);
+			if (!targetIds.length) return null;
+			const ops = [];
+			for (const id of targetIds) {
+				const current = context.world.getCanonical(id, MAP_ASPECT_ID);
+				if (!current) continue;
+				const resolved = resolveMapSpec(current);
+				let target = args.target && typeof args.target === "object" ? args.target : null;
+				if (!target && Number.isInteger(args.index)) target = listEditableLegendEntries(current)[args.index]?.target ?? null;
+				if (!target) continue;
+				if (target.source === "explicit") {
+					const items = structuredClone(Array.isArray(current.legend?.items) ? current.legend.items : []);
+					const item = items[target.index];
+					if (!item || typeof item !== "object") continue;
+					if (typeof args.label === "string") item.label = args.label.trim();
+					if (typeof args.included === "boolean") item.visible = args.included;
+					const enableBox = typeof args.label === "string" && args.label.trim().length > 0 || args.included === true;
+					ops.push({
+						id,
+						aspect: MAP_ASPECT_ID,
+						patch: syncFlatFields({ legend: preserveCanonicalLegend(current, resolved, {
+							items,
+							...enableBox ? { enabled: true } : {}
+						}) })
+					});
+				} else if (target.source === "highlight" && Array.isArray(target.indices)) {
+					const list = structuredClone(resolved.highlights);
+					let changed = false;
+					let enableBox = false;
+					for (const idx of target.indices) {
+						const item = list[idx];
+						if (!item) continue;
+						if (typeof args.label === "string") {
+							const trimmed = args.label.trim();
+							item.legendLabel = trimmed;
+							item.showInLegend = trimmed.length > 0;
+							if (trimmed.length > 0) enableBox = true;
+							changed = true;
+						}
+						if (typeof args.included === "boolean") {
+							item.showInLegend = args.included;
+							if (args.included && !item.legendLabel) item.legendLabel = `강조 (${item.level})`;
+							if (args.included) enableBox = true;
+							changed = true;
+						}
+					}
+					if (changed) ops.push({
+						id,
+						aspect: MAP_ASPECT_ID,
+						patch: syncFlatFields({
+							highlights: list,
+							...enableBox ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}
+						})
+					});
+				} else if (target.source === "layer" && target.layerId) {
+					let changed = false;
+					let enableBox = false;
+					const layers = structuredClone(current.customLayers ?? []).map((layer) => {
+						if (layer.id !== target.layerId) return layer;
+						changed = true;
+						const next = { ...layer };
+						if (typeof args.label === "string") {
+							const trimmed = args.label.trim();
+							if (trimmed) {
+								next.name = trimmed;
+								next.showInLegend = true;
+								enableBox = true;
+							} else next.showInLegend = false;
+						}
+						if (typeof args.included === "boolean") {
+							next.showInLegend = args.included;
+							if (args.included) {
+								if (!String(next.name ?? "").trim()) next.name = "범례 항목";
+								enableBox = true;
+							}
+						}
+						return next;
+					});
+					if (changed) ops.push({
+						id,
+						aspect: MAP_ASPECT_ID,
+						patch: syncFlatFields({
+							customLayers: layers,
+							...enableBox ? { legend: preserveCanonicalLegend(current, resolved, { enabled: true }) } : {}
+						})
+					});
+				}
+			}
+			if (ops.length) withHistoryGroup(context, () => {
+				context.world.applyCanonicalTransaction(`${EXTENSION_ID}:update-legend-item`, ops);
 			});
 			return targetIds;
 		};
@@ -21896,13 +22358,10 @@ var plugin = {
 				const prev = normalizeOffset(resolved.legend.offset);
 				updateStyle({
 					entityId,
-					legend: {
-						...resolved.legend,
-						offset: {
-							x: prev.x + dx,
-							y: prev.y + dy
-						}
-					}
+					legend: preserveCanonicalLegend(current, resolved, { offset: {
+						x: prev.x + dx,
+						y: prev.y + dy
+					} })
 				});
 			} else if (kind === "inset") {
 				const prev = normalizeOffset(resolved.inset.offset);
@@ -22050,6 +22509,7 @@ var plugin = {
 				case "add-annotation": return addAnnotation(args);
 				case "update-annotation": return updateAnnotation(args);
 				case "remove-annotation": return removeAnnotation(args);
+				case "update-legend-item": return updateLegendItem(args);
 				case "start-tool": {
 					const targetId = getSelectedMapIds(context, args.entityId)[0];
 					if (targetId && args.mode) {
@@ -22103,6 +22563,7 @@ var plugin = {
 				addAnnotation,
 				updateAnnotation,
 				removeAnnotation,
+				updateLegendItem,
 				toggleAutoDetail,
 				bakeHighRes,
 				clearBaked,
@@ -22120,4 +22581,4 @@ var plugin = {
 		};
 	}
 };
-export { COMMAND_NAMES, EXTENSION_ID, HIGHLIGHT_SLOTS, MAP_ASPECT_ID, MAP_DEFAULTS, MAP_PRINT_PRESETS, REGION_PRESETS, STUDIO_PANEL_ID, THEMATIC_PRESETS, bakeHighResSnapshot, createMapPropsForRegion, createMapPropsFromThematicPreset, createPackageManifest, plugin as default, deriveMapGeometry, getOfflineBaseGis, mountMapExplorer, mountMapGizmos, mountMapMenubar, parseCustomGisInput, parseMapCss, planWhiteMapChanges, registerWhiteMapTools, renderMapDom, renderMapSvg, resolveMapSpec, resolveMapStyle, settingsSchema, syncFlatFields, whiteMapAspect };
+export { COMMAND_NAMES, EXTENSION_ID, HIGHLIGHT_SLOTS, LEGEND_INSPECTOR_PANEL_ID, MAP_ASPECT_ID, MAP_DEFAULTS, MAP_PRINT_PRESETS, REGION_PRESETS, STUDIO_PANEL_ID, THEMATIC_PRESETS, bakeHighResSnapshot, createLegendInspectorSpec, createMapPropsForRegion, createMapPropsFromThematicPreset, createPackageManifest, plugin as default, deriveMapGeometry, getOfflineBaseGis, listEditableLegendEntries, mountMapExplorer, mountMapGizmos, mountMapMenubar, parseCustomGisInput, parseMapCss, planWhiteMapChanges, registerWhiteMapTools, renderMapDom, renderMapSvg, resolveMapSpec, resolveMapStyle, settingsSchema, syncFlatFields, whiteMapAspect };
